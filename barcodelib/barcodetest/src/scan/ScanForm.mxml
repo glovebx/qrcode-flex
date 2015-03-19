@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:TitleWindow xmlns:mx="http://www.adobe.com/2006/mxml" 
+				layout="vertical" showCloseButton="true"
+				fontSize="12" fontFamily="Simsun" title="条形码识别" 
+				creationComplete="Init()" close="Close()">
+	<!--
+	
+	Copyright (c) 2012, Hunk.Cai
+	All rights reserved.
+	
+	创建人：Hunk.Cai
+	修改人：
+	
+	-->
+	<mx:Script>
+		<![CDATA[
+			import mx.controls.Alert;
+			import mx.core.FlexGlobals;
+			import mx.managers.PopUpManager;
+			
+			private static var g_Instance:ScanForm;
+			public static function get Instance():ScanForm
+			{
+				if (g_Instance == null)
+				{
+					g_Instance = new ScanForm();
+					g_Instance.visible = false;
+				}
+				return g_Instance;
+			}
+			private var _IsPopUp:Boolean = false;
+			private var _Callback:Function;
+			private var _Video:Video;
+			private var _Camera:Camera;
+			private var _ImageWidth:Number = 320;
+			private var _ImageHeight:Number = 240;
+			private var _SizeSource:Array;
+			private var _ScanArea:ScanArea;
+			private function Init():void
+			{
+				_SizeSource = new Array();
+				_SizeSource.push("320 x 240");
+				_SizeSource.push("400 x 300");
+				_SizeSource.push("480 x 360");
+				_SizeSource.push("640 x 480");
+				_SizeSource.push("800 x 600");
+				_Size.dataProvider = _SizeSource;
+				_Size.selectedIndex = 0;
+				
+				_ScanArea = new ScanArea();
+				_Holder.addChild(_ScanArea);
+				RefreshScanArea();
+			}
+			/**
+			 * @param callback: function(scan:BitmapData):void
+			 */
+			public function Show(callback:Function = null, modal:Boolean = true):void
+			{
+				_Callback = callback;
+				PopUp(modal);
+				AttachCamera();
+			}
+			private function PopUp(modal:Boolean):void
+			{
+				if(_IsPopUp)
+					return;
+				_IsPopUp = true;
+				var app:DisplayObject = mx.core.FlexGlobals.topLevelApplication as DisplayObject;
+				PopUpManager.addPopUp(this, app, modal);
+				visible = true;
+				PopUpManager.centerPopUp(this);
+				PopUpManager.bringToFront(this);
+			}
+
+
+			private function AttachCamera():void
+			{
+				CloseCamera();
+				
+				_Camera = Camera.getCamera();
+				if(_Camera)
+				{
+					_Camera.setMode(_ImageWidth, _ImageHeight, 24);
+					_Camera.setQuality(0, 100);
+					
+					_Video = new Video(_Camera.width, _Camera.height);
+					_Holder.addChildAt(_Video, 0);
+					_Video.x = _Video.y = 16;
+					_Holder.width = _Video.width + 32;
+					_Holder.height = _Video.height + 32;
+					_Video.attachCamera(_Camera);
+ 
+					PopUpManager.centerPopUp(this);
+				}
+				else
+				{
+					ShowInfo("未能打开摄像头！");
+				}
+				
+			}
+			private static function ShowInfo(message:String):void
+			{
+				Alert.okLabel = "确定";
+				Alert.show(message, "信息", Alert.OK);
+			}
+			public function Close():void
+			{
+				if(_IsPopUp)
+				{
+					_IsPopUp = false;
+					visible = false;
+					PopUpManager.removePopUp(this);	
+				}
+				CloseCamera();
+			}
+			private function CloseCamera():void
+			{
+				if(!_Camera)
+					return;
+				_Camera = Camera.getCamera(null);
+				_Camera = null;
+				if(_Video)
+				{
+					_Video.attachCamera(null);
+					_Holder.removeChild(_Video);
+				}
+			}
+			private function Read():void
+			{
+				if(!_Camera)
+				{
+					ShowInfo("未能打开摄像头！");
+					return;
+				}
+				if(_Callback != null)
+				{
+					var bitmapData:BitmapData = new BitmapData(_Video.width, _Video.height);
+					bitmapData.draw(_Video);
+					var scanArea:BitmapData = new BitmapData(_ScanArea.width, _ScanArea.height);
+					var rect:Rectangle = new Rectangle(0,0,_ScanArea.width, _ScanArea.height);
+					rect.x = _ScanArea.x - 16;
+					rect.y = _ScanArea.y - 16;
+					scanArea.copyPixels(bitmapData, rect, new Point(0,0));
+					_Callback(scanArea);
+ 
+					bitmapData.dispose();
+				}
+			}
+			
+			private function OnSizeChanged():void
+			{
+				if(!_Size.selectedItem)
+					return;
+				
+				_ImageWidth = Number(_Size.selectedLabel.substr(0, 3));
+				_ImageHeight = Number(_Size.selectedLabel.substr(6));
+				AttachCamera();
+				
+			}
+			
+			private function OnHolderResize():void
+			{
+				if(_ScanArea)
+				{
+					_ScanArea.x = (_Holder.width - _ScanArea.width)/2;
+					_ScanArea.y = (_Holder.height - _ScanArea.height)/2;
+				}
+			}
+			
+			private function RefreshScanArea():void
+			{
+				_ScanArea.width = Number(_ScanWidth.text);
+				_ScanArea.height = Number(_ScanHeight.text);
+				OnHolderResize();
+			}
+		]]>
+	</mx:Script>
+	<mx:HBox width="100%" verticalAlign="middle" horizontalAlign="left" paddingBottom="3" paddingTop="3" paddingLeft="3" paddingRight="3">
+		<mx:Label text="图像："/>
+		<mx:ComboBox id="_Size" width="88" editable="false" change="OnSizeChanged()"/>
+		<mx:Label text="解码区域："/>
+		<mx:TextInput id="_ScanWidth" width="40" text="160" enter="RefreshScanArea()" focusOut="RefreshScanArea()"/>
+		<mx:TextInput id="_ScanHeight" width="40" text="80" enter="RefreshScanArea()" focusOut="RefreshScanArea()"/>
+	</mx:HBox>
+	<mx:UIComponent id="_Holder" width="100%" height="100%" resize="OnHolderResize()"/>
+	<mx:ControlBar horizontalAlign="right">
+		<mx:Button label="读取" click="Read()"/>
+		<mx:Button label="关闭" click="Close()"/>
+	</mx:ControlBar>
+</mx:TitleWindow>

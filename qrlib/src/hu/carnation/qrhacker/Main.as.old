@@ -1,0 +1,886 @@
+﻿//Created by Action Script Viewer - http://www.buraks.com/asv
+package hu.carnation.qrhacker{
+    import flash.display.Sprite;
+    import co.moodshare.pdf.MSPDF;
+    import hu.carnation.qr.model.Model;
+    import hu.carnation.transform.components.SaveView;
+    import flash.net.URLLoader;
+    import hu.carnation.qr.QrCodeHandler;
+    import flash.events.Event;
+    import flash.display.StageAlign;
+    import flash.display.StageScaleMode;
+    import flash.system.Security;
+    import flash.display.BitmapData;
+    import flash.display.Bitmap;
+    import flash.geom.Matrix;
+    import flash.external.ExternalInterface;
+    import flash.display.LoaderInfo;
+    import hu.carnation.qr.event.QrCodeEvent;
+    import com.greensock.TweenLite;
+    import flash.utils.ByteArray;
+    import com.adobe.images.PNGEncoder;
+    import flash.net.URLRequestHeader;
+    import flash.net.URLVariables;
+    import flash.net.URLRequest;
+    import flash.net.URLRequestMethod;
+    import flash.net.navigateToURL;
+    import flash.net.FileReference;
+    import org.alivepdf.layout.Orientation;
+    import org.alivepdf.layout.Unit;
+    import org.alivepdf.layout.Size;
+    import org.alivepdf.fonts.CoreFont;
+    import org.alivepdf.fonts.FontFamily;
+    import org.alivepdf.colors.RGBColor;
+    import org.alivepdf.saving.Method;
+    import flash.net.*;
+    import hu.carnation.transform.components.*;
+
+    public class Main extends Sprite {
+
+        public static const QR_SIZE:Number = 420;
+
+        private var pdf:MSPDF;
+        private var foregroundView:ForegroundView;
+        private var uploadHandler:UploadHandler;
+        private var _isQRValid:Boolean = false;
+        private var model:Model;
+        private var qrCodeDisplay:QrCodeDisplay;
+        private var pdfView:PDFView;
+        private var isPublic:Boolean = false;
+        private var saveView:SaveView;
+        private var uploadURLLoader:URLLoader;
+        private var uploadPngURL:String = "upload.php";
+        private var qrCodeController:QrCodeHandler;
+        private var backgroundView:BackgroundView;
+        private var photoView:PhotoView;
+
+        public function Main(){
+            this.addEventListener(Event.ADDED_TO_STAGE, this.init, false, 0, true);
+            stage.align = StageAlign.TOP_LEFT;
+            stage.scaleMode = StageScaleMode.EXACT_FIT;
+            Security.allowDomain("*");
+            Security.allowInsecureDomain("*");
+        }
+
+        private function shotAllElements(bigSize:Boolean=false):Bitmap{
+            var bitmapData:BitmapData;
+            var bitmap:Bitmap;
+            var scaleMatrix:Matrix;
+            var w:int;
+            var padding:int;
+            var matrix:Matrix;
+            if (bigSize){
+                bitmapData = new BitmapData((3 * stage.stageWidth), (3 * stage.stageHeight), true, 0xFFFFFFFF);
+                bitmap = new Bitmap(bitmapData);
+                bitmapData.draw(this.backgroundView.getBitmap());
+                scaleMatrix = new Matrix();
+                scaleMatrix.scale(3, 3);
+                w = ((3 * this.model.pixelSize) * this.model.qrMatrix.width());
+                padding = int((((3 * 480) - w) / 2));
+                matrix = new Matrix();
+                matrix.translate((padding / 3), (padding / 3));
+                matrix.scale(3, 3);
+                bitmapData.draw(this.qrCodeDisplay, matrix);
+                bitmapData.draw(this.foregroundView.getBitmap());
+                bitmapData.draw(this.photoView.getBitmap());
+            } else {
+                bitmapData = new BitmapData(stage.stageWidth, stage.stageHeight, true, 0xFFFFFFFF);
+                bitmap = new Bitmap(bitmapData);
+                bitmapData.draw(this);
+            };
+            return (bitmap);
+        }
+
+        public function undoPixel():void{
+            this.qrCodeDisplay.undo();
+        }
+
+        public function generateQrCode(str:String, type:String=""):void{
+            this.saveView.visible = false;
+            trace(((("Main.generateQrCode(str) " + str) + ", type: ") + type));
+            this.model.encodeString = str;
+            this.model.encodeType = type;
+            this.qrCodeDisplay.disableCustomColoring();
+            this.qrCodeController.generateQrCode(str);
+        }
+
+        public function closeHtmlPopups():void{
+            if (ExternalInterface.available){
+                trace("Main.closeHtmlPopups() ");
+            };
+        }
+
+        public function setBackgroundAlpha(str:String):void{
+            this.qrCodeDisplay.disableCustomColoring();
+            this.model.backgroundAlpha = Number(str);
+        }
+
+        public function setBackgroundColor(str:String):void{
+            this.qrCodeDisplay.disableCustomColoring();
+            this.model.backgroundColor = (((str)!="") ? uint(this.fixColorCode(str)) : 0xFFFFFF);
+        }
+
+        private function init(e:Event=null):void{
+            var o:*;
+            removeEventListener(Event.ADDED_TO_STAGE, this.init);
+            this.model = new Model();
+            this.model.pixelColor = 0;
+            this.model.qrSize = QR_SIZE;
+            this.model.cornerRadius = 0;
+            this.model.brightness = 1.5;
+            var params:Object = LoaderInfo(this.root.loaderInfo).parameters;
+            for (o in params) {
+                trace(((("Main - init param: " + o) + ", ") + params[o]));
+                if (o == "role"){
+                    this.model.role = params[o];
+                };
+            };
+            this.uploadHandler = new UploadHandler(this.model);
+            this.qrCodeController = new QrCodeHandler(this.model);
+            addChild(this.qrCodeController);
+            this.qrCodeController.addEventListener(QrCodeEvent.DECODE_COMPLETE, this.qrCodeHandler, false, 0, true);
+            this.qrCodeController.addEventListener(QrCodeEvent.DECODE_ERROR, this.qrCodeHandler, false, 0, true);
+            this.qrCodeController.addEventListener(QrCodeEvent.ENCODE_COMPLETE, this.qrCodeHandler, false, 0, true);
+            this.qrCodeController.addEventListener(QrCodeEvent.ENCODE_ERROR, this.qrCodeHandler, false, 0, true);
+            this.qrCodeDisplay = new QrCodeDisplay(this.model);
+            addChild(this.qrCodeDisplay);
+            this.qrCodeDisplay.addEventListener(QrCodeDisplay.PIXEL_DRAW_START, this.qrDisplayHandler, false, 0, true);
+            this.qrCodeDisplay.addEventListener(QrCodeDisplay.PIXEL_DRAW_FINISH, this.qrDisplayHandler, false, 0, true);
+            this.backgroundView = new BackgroundView(this.model, this.uploadHandler, this);
+            addChildAt(this.backgroundView, 0);
+            this.foregroundView = new ForegroundView(this.model, this.uploadHandler, this);
+            addChild(this.foregroundView);
+            this.foregroundView.mouseEnabled = false;
+            this.photoView = new PhotoView(this.model, this.uploadHandler, this);
+            addChild(this.photoView);
+            this.saveView = new SaveView(this.model.role);
+            this.saveView.x = (stage.stageWidth / 2);
+            this.saveView.y = (stage.stageHeight / 2);
+            addChild(this.saveView);
+            this.saveView.visible = false;
+            if (ExternalInterface.available){
+                ExternalInterface.addCallback("generateQrCode", this.generateQrCode);
+                ExternalInterface.addCallback("setRoundedCorner", this.setRoundedCorner);
+                ExternalInterface.addCallback("setBackgroundColor", this.setBackgroundColor);
+                ExternalInterface.addCallback("setBackgroundURL", this.setBackgroundURL);
+                ExternalInterface.addCallback("setBackgroundAlpha", this.setBackgroundAlpha);
+                ExternalInterface.addCallback("resetBackground", this.resetBackgroundBitmap);
+                ExternalInterface.addCallback("setForegroundColor", this.setForegroundColor);
+                ExternalInterface.addCallback("setForegroundURL", this.setForegroundURL);
+                ExternalInterface.addCallback("setForegroundAlpha", this.setForegroundAlpha);
+                ExternalInterface.addCallback("resetForeground", this.resetForeground);
+                ExternalInterface.addCallback("setPixelColor", this.setPixelColor);
+                ExternalInterface.addCallback("closePixelMode", this.closePixelMode);
+                ExternalInterface.addCallback("undoPixel", this.undoPixel);
+                ExternalInterface.addCallback("redoPixel", this.redoPixel);
+                ExternalInterface.addCallback("resetCustomPixelColor", this.resetCustomPixelColor);
+                ExternalInterface.addCallback("setAdvancedPixelSize", this.setAdvancedPixelSize);
+                ExternalInterface.addCallback("setPhotoURL", this.setPhotoURL);
+                ExternalInterface.addCallback("resetPhotos", this.resetPhotos);
+                ExternalInterface.addCallback("saveQR", this.saveQR);
+                ExternalInterface.addCallback("checkQR", this.resetQR);
+                ExternalInterface.addCallback("resetQR", this.resetQR);
+                ExternalInterface.addCallback("saveForWebshop", this.saveForWebshop);
+                ExternalInterface.addCallback("toggleQrPixel", this.toggleQrPixel);
+                ExternalInterface.call("_debug", "on");
+            };
+            trace(("frameRate: " + stage.frameRate));
+        }
+
+        public function setForegroundAlpha(str:String):void{
+            this.model.foregroundAlpha = Number(str);
+        }
+
+        public function setTool(from:String, type:String, action:Boolean):void{
+            if (ExternalInterface.available){
+                ExternalInterface.call("setTool", from, type, action);
+            };
+            this.qrCodeDisplay.disableCustomColoring();
+        }
+
+        public function setForegroundColor(str:String):void{
+            this.model.foregroundColor = (((str)!="") ? uint(this.fixColorCode(str)) : 0);
+            this.qrCodeDisplay.disableCustomColoring();
+            TweenLite.delayedCall(0.2, this.checkQR);
+        }
+
+        public function setBackgroundURL(str:String):void{
+            this.qrCodeDisplay.disableCustomColoring();
+            if (this.model.qrMatrix){
+                this.model.backgroundURL = str;
+            };
+        }
+
+        public function setRoundedCorner(str:String):void{
+            this.model.cornerRadius = Number(str);
+        }
+
+        public function getQrPNG(bigSize:Boolean=false, qrhackeroverlay:Boolean=true):ByteArray{
+            var pngByteArray:ByteArray;
+            var bitmap:Bitmap;
+            var bitmapDataWithOverlay:BitmapData;
+            if (this.saveView){
+                this.saveView.visible = false;
+            };
+            if (this.qrCodeDisplay.isDrawing){
+                this.qrCodeDisplay.hideCustomMousePointer();
+            };
+            var footerMatrix:Matrix = new Matrix();
+            var footerOverlay:BitmapData = new PNGFooter(1, 1);
+            bitmap = this.shotAllElements(bigSize);
+            if (bigSize){
+                if (qrhackeroverlay){
+                    bitmapDataWithOverlay = new BitmapData((3 * stage.stageWidth), (3 * (stage.stageHeight + 40)));
+                    bitmapDataWithOverlay.draw(bitmap);
+                    footerMatrix.translate(0, stage.stageHeight);
+                    footerMatrix.scale(3, 3);
+                } else {
+                    bitmapDataWithOverlay = new BitmapData((3 * stage.stageWidth), (3 * stage.stageHeight));
+                    bitmapDataWithOverlay.draw(bitmap);
+                };
+            } else {
+                if (qrhackeroverlay){
+                    bitmapDataWithOverlay = new BitmapData(stage.stageWidth, (stage.stageHeight + 40));
+                    bitmapDataWithOverlay.draw(bitmap);
+                    footerMatrix.translate(0, stage.stageHeight);
+                } else {
+                    bitmapDataWithOverlay = new BitmapData(stage.stageWidth, stage.stageHeight);
+                    bitmapDataWithOverlay.draw(bitmap);
+                };
+            };
+            if (qrhackeroverlay){
+                bitmapDataWithOverlay.draw(footerOverlay, footerMatrix);
+            };
+            pngByteArray = PNGEncoder.encode(bitmapDataWithOverlay);
+            if (this.qrCodeDisplay.isDrawing){
+                this.qrCodeDisplay.showCustomMousePointer();
+            };
+            if (this.saveView){
+                this.saveView.visible = true;
+            };
+            return (pngByteArray);
+        }
+
+        public function saveForWebshop(param:String):void{
+            this.isPublic = (((param)=="1") ? true : false);
+            trace(("Main.saveForWebshop(param) param: " + param));
+            this.qrCodeDisplay.disableCustomColoring();
+            this.photoView.deselectAllItem();
+            var bigQRPNG:ByteArray = this.getQrPNG(true);
+            this.saveQrToServer(bigQRPNG, true);
+            if (this.saveView){
+                this.saveView.visible = false;
+            };
+        }
+
+        public function redoPixel():void{
+            this.qrCodeDisplay.redo();
+        }
+
+        public function resetPhotos():void{
+            this.qrCodeDisplay.disableCustomColoring();
+            this.photoView.dispose();
+        }
+
+        public function closePixelMode():void{
+            this.model.pixelType = -1;
+        }
+
+        protected function onQRDisplayChange(e:Event):void{
+            this.checkQR();
+        }
+
+        protected function qrDisplayHandler(e:Event):void{
+            switch (e.type){
+                case QrCodeDisplay.PIXEL_DRAW_START:
+                    this.foregroundView.alpha = 0.5;
+                    this.photoView.alpha = 0.5;
+                    this.photoView.disable();
+                    this.photoView.mouseEnabled = false;
+                    break;
+                case QrCodeDisplay.PIXEL_DRAW_FINISH:
+                    this.foregroundView.alpha = 1;
+                    this.photoView.alpha = 1;
+                    this.photoView.enable();
+                    this.photoView.mouseEnabled = true;
+                    if (this.foregroundView){
+                        this.foregroundView.updateMask();
+                    };
+                    trace(("Main.qrDisplayHandler(e) foregroundViewalpha: " + this.foregroundView.alpha));
+                    break;
+            };
+        }
+
+        protected function onFileSaveCancel(e:Event):void{
+            trace("Main.onFileSaveCancel(e)");
+        }
+
+        protected function onUploadComplete(e:Event):void{
+            this.uploadURLLoader.removeEventListener(Event.COMPLETE, this.onUploadComplete);
+            var urlLoader:URLLoader = URLLoader(e.target);
+            var images:Array = String(urlLoader.data).split("\n");
+            trace(("Main.onUploadComplete(event) upload data: " + images));
+            if (ExternalInterface.available){
+                ExternalInterface.call("showWebshop", images[0], images[1], images[2]);
+            };
+        }
+
+        protected function qrCodeHandler(e:Event):void{
+            switch (e.type){
+                case QrCodeEvent.ENCODE_COMPLETE:
+                    this.checkQR();
+                    this.foregroundView.qrCodeDisplay = this.qrCodeDisplay;
+                    this.qrCodeDisplay.addEventListener(Event.CHANGE, this.onQRDisplayChange, false, 0, true);
+                    break;
+            };
+        }
+
+        public function resetCustomPixelColor():void{
+            this.model.pixelType = -1;
+            this.qrCodeDisplay.resetAllCustomPixelColor();
+            TweenLite.delayedCall(0.2, this.checkQR);
+        }
+
+        public function resetQR():void{
+            this.qrCodeDisplay.disableCustomColoring();
+            this.foregroundView.dispose();
+            this.backgroundView.dispose();
+            this.photoView.dispose();
+            this.model.backgroundAlpha = 1;
+            this.model.foregroundAlpha = 1;
+            this.model.backgroundColor = 0xFFFFFF;
+            this.model.foregroundColor = 0;
+            this.model.cornerRadius = 0;
+        }
+
+        public function checkQR():void{
+            var errorPercent:Number;
+            trace("check QR");
+            if (!this.model.qrMatrix){
+                return;
+            };
+            if (this.qrCodeDisplay.isDrawing){
+                this.qrCodeDisplay.hideCustomMousePointer();
+            };
+            if (this.photoView){
+                this.photoView.deselectAllItem();
+                this.photoView.alpha = 1;
+            };
+            if (this.foregroundView){
+                this.foregroundView.alpha = 1;
+            };
+            var result:Object = this.qrCodeController.decodeBitmap(this.shotAllElements());
+            trace(result);
+            if (((this.photoView) && (this.qrCodeDisplay.isDrawing))){
+                this.photoView.alpha = 0.5;
+            };
+            if (((this.foregroundView) && (this.qrCodeDisplay.isDrawing))){
+                this.foregroundView.alpha = 0.5;
+            };
+            if (result.text){
+                trace(("Main.checkQR(): " + result.text));
+                errorPercent = int(((Number(result.error) / 30) * 100));
+                if (ExternalInterface.available){
+                    ExternalInterface.call("displayError", errorPercent);
+                };
+                this.isQRValid = true;
+            } else {
+                this.isQRValid = false;
+                trace(("Main.checkQR() " + result.errorText));
+                if (ExternalInterface.available){
+                    ExternalInterface.call("displayError", -1);
+                };
+            };
+            if (this.qrCodeDisplay.isDrawing){
+                this.qrCodeDisplay.showCustomMousePointer();
+            };
+        }
+
+        public function saveQrToServer(pngByteArray:ByteArray, webshop:Boolean=false):void{
+            var header:URLRequestHeader = new URLRequestHeader("Content-type", "application/octet-stream");
+            var vars:URLVariables = new URLVariables();
+            vars.type = this.model.encodeType;
+            vars.encodeType = this.model.encodeType;
+            vars.encodeStr = this.model.encodeString;
+            vars.is_public = String(this.isPublic);
+            vars.is_valid = String(this.isQRValid);
+            trace(("Main.saveQrToServer(pngByteArray) vars: " + vars.toString()));
+            var uploadRequest:URLRequest = new URLRequest(((this.uploadPngURL + "?") + vars.toString()));
+            uploadRequest.method = URLRequestMethod.POST;
+            uploadRequest.data = pngByteArray;
+            uploadRequest.requestHeaders.push(header);
+            this.uploadURLLoader = new URLLoader();
+            if (webshop){
+                this.uploadURLLoader.addEventListener(Event.COMPLETE, this.onUploadComplete);
+            } else {
+                if (this.saveView){
+                    this.saveView.visible = true;
+                };
+            };
+            this.uploadURLLoader.load(uploadRequest);
+        }
+
+        protected function onUpgradeClick(e:Event):void{
+            trace("Main.onUpgradeClick(e)");
+            navigateToURL(new URLRequest("/upgrade"));
+        }
+
+        protected function onFileSaved(e:Event):void{
+            trace("Main.onFileSaved(e)");
+        }
+
+        private function fixColorCode(color:String):String{
+            var validColor:String;
+            var submittedColor:String = color;
+            var pattern:RegExp = /#/;
+            submittedColor = color.replace(pattern, "");
+            pattern = /0x/;
+            if (submittedColor.substring(0, 2) != "0x"){
+                validColor = ("0x" + submittedColor);
+            } else {
+                validColor = submittedColor;
+            };
+            return (validColor);
+        }
+
+        protected function onWebshopClick(event:Event):void{
+            trace("onWebshopClick");
+            this.qrCodeDisplay.disableCustomColoring();
+            this.photoView.deselectAllItem();
+            var bigQRPNG:ByteArray = this.getQrPNG(true);
+            this.saveQrToServer(bigQRPNG, true);
+        }
+
+        public function saveQR(param:String):void{
+            trace(("Main.saveQR(param) : " + param));
+            this.isPublic = (((param)=="1") ? true : false);
+            this.qrCodeDisplay.disableCustomColoring();
+            this.photoView.deselectAllItem();
+            this.checkQR();
+            this.saveView.visible = true;
+            this.saveView.addEventListener(SaveView.IMAGE_CLICK, this.onSaveClick, false, 0, true);
+            this.saveView.addEventListener(SaveView.PDF_CLICK, this.onSaveClick, false, 0, true);
+            this.saveView.addEventListener(SaveView.HR_IMAGE_CLICK, this.onSaveClick, false, 0, true);
+            this.saveView.addEventListener(SaveView.LOGIN_CLICK, this.onLoginClick, false, 0, true);
+            this.saveView.addEventListener(SaveView.UPGRADE_CLICK, this.onUpgradeClick, false, 0, true);
+            this.saveView.addEventListener(SaveView.CANCEL, this.closeSaveWindow, false, 0, true);
+            this.saveView.addEventListener(SaveView.WEBSHOP_CLICK, this.onWebshopClick, false, 0, true);
+            var bigQRPNG:ByteArray = this.getQrPNG(true);
+            this.saveQrToServer(bigQRPNG, false);
+            this.saveView.error = !(this.isQRValid);
+        }
+
+        public function setPhotoURL(str:String):void{
+            this.qrCodeDisplay.disableCustomColoring();
+            if (this.model.qrMatrix){
+                this.model.photoURL = str;
+            };
+        }
+
+        public function set isQRValid(value:Boolean):void{
+            this._isQRValid = value;
+        }
+
+        private function setAdvancedPixelSize(size:String):void{
+            trace(("Main.setAdvancedPixelSize(size): " + size));
+            this.model.pixelType = int(size);
+        }
+
+        protected function closeSaveWindow(e:Event):void{
+            this.saveView.visible = false;
+        }
+
+        public function resetBackgroundBitmap(s:String=null):void{
+            this.qrCodeDisplay.disableCustomColoring();
+            this.backgroundView.resetBitmap();
+        }
+
+        private function toggleQrPixel():void{
+            trace("Main.toggleQrPixel()");
+            this.qrCodeDisplay.toggleOriginalQrPixels();
+        }
+
+        public function resetForeground(s:String=null):void{
+            this.qrCodeDisplay.disableCustomColoring();
+            this.foregroundView.resetBitmap();
+        }
+
+        protected function onLoginClick(e:Event):void{
+            trace("Main.onLoginClick(e)");
+            if (ExternalInterface.available){
+                ExternalInterface.call("showDialog", ["login"], 500);
+            };
+        }
+
+        public function get isQRValid():Boolean{
+            return (this._isQRValid);
+        }
+
+        public function setForegroundURL(str:String):void{
+            this.model.foregroundURL = str;
+            this.qrCodeDisplay.disableCustomColoring();
+        }
+
+        protected function onSaveClick(e:Event):void{
+            var qrPNG:ByteArray;
+            var bigQRPNG:ByteArray;
+            var pdfbytes:ByteArray;
+            trace("onSaveClick");
+            this.qrCodeDisplay.disableCustomColoring();
+            if ((((((this.model.role == "FREE")) || ((this.model.role == "REG")))) || ((this.model.role == "GUEST")))){
+                qrPNG = this.getQrPNG(false, true);
+            } else {
+                qrPNG = this.getQrPNG(false, false);
+                bigQRPNG = this.getQrPNG(true, false);
+            };
+            var file:FileReference = new FileReference();
+            file.addEventListener(Event.COMPLETE, this.onFileSaved, false, 0, true);
+            file.addEventListener(Event.CANCEL, this.onFileSaveCancel, false, 0, true);
+            if (e.type == SaveView.IMAGE_CLICK){
+                file.save(qrPNG, "QRHacker.com.png");
+            } else {
+                if (e.type == SaveView.PDF_CLICK){
+                    this.pdf = new MSPDF(Orientation.PORTRAIT, Unit.POINT, false, Size.A4);
+                    this.pdf.addPage();
+                    this.backgroundView.updatePDF(this.pdf);
+                    this.qrCodeDisplay.generateQrToPDF(this.pdf);
+                    this.foregroundView.updatePDF(this.pdf);
+                    this.photoView.updatePDF(this.pdf);
+                    if ((((((this.model.role == "FREE")) || ((this.model.role == "REG")))) || ((this.model.role == "GUEST")))){
+                        this.pdf.setFont(new CoreFont(FontFamily.HELVETICA_BOLD), 14);
+                        this.pdf.textStyle(new RGBColor(0));
+                        this.pdf.addText("Made with QRHacker.com", 380, 800);
+                    };
+                    pdfbytes = this.pdf.save(Method.LOCAL);
+                    file.save(pdfbytes, "QRHacker.pdf");
+                } else {
+                    if (e.type == SaveView.HR_IMAGE_CLICK){
+                        file.save(bigQRPNG, "QRHacker.com.png");
+                    };
+                };
+            };
+        }
+
+        public function setPixelColor(str:String):void{
+            if (this.model.pixelType == -1){
+                this.model.pixelType = 0;
+                this.model.pixelColor = uint(this.fixColorCode(str));
+            } else {
+                this.model.pixelColor = uint(this.fixColorCode(str));
+                this.model.pixelType = this.model.pixelType;
+            };
+        }
+
+
+    }
+}//package hu.carnation.qrhacker
+    //force all classes
+    import hu.carnation.qrhacker.Main; hu.carnation.qrhacker.Main;
+    import hu.carnation.qrhacker.UploadHandler; hu.carnation.qrhacker.UploadHandler;
+    import hu.carnation.qrhacker.PDFView; hu.carnation.qrhacker.PDFView;
+    import org.alivepdf.layout.Size; org.alivepdf.layout.Size;
+    import hu.carnation.qr.event.QrCodeEvent; hu.carnation.qr.event.QrCodeEvent;
+    import hu.carnation.qrhacker.BasicView; hu.carnation.qrhacker.BasicView;
+    import hu.carnation.qrhacker.BackgroundView; hu.carnation.qrhacker.BackgroundView;
+    import org.alivepdf.pdf.PDF; org.alivepdf.pdf.PDF;
+    import co.moodshare.pdf.MSPDF; co.moodshare.pdf.MSPDF;
+    import com.greensock.core.TweenCore; com.greensock.core.TweenCore;
+    import com.greensock.TweenLite; com.greensock.TweenLite;
+    import PNGFooter; PNGFooter;
+    import hu.carnation.transform.components.SaveView; hu.carnation.transform.components.SaveView;
+    import hu.carnation.qr.model.Model; hu.carnation.qr.model.Model;
+    import org.alivepdf.layout.Orientation; org.alivepdf.layout.Orientation;
+    import hu.carnation.qrhacker.PhotoView; hu.carnation.qrhacker.PhotoView;
+    import org.alivepdf.fonts.IFont; org.alivepdf.fonts.IFont;
+    import org.alivepdf.fonts.CoreFont; org.alivepdf.fonts.CoreFont;
+    import hu.carnation.qr.QrCodeHandler; hu.carnation.qr.QrCodeHandler;
+    import org.alivepdf.fonts.FontFamily; org.alivepdf.fonts.FontFamily;
+    import hu.carnation.qrhacker.ForegroundView; hu.carnation.qrhacker.ForegroundView;
+    import hu.carnation.qrhacker.QrCodeDisplay; hu.carnation.qrhacker.QrCodeDisplay;
+    import org.alivepdf.saving.Method; org.alivepdf.saving.Method;
+    import org.alivepdf.layout.Unit; org.alivepdf.layout.Unit;
+    import com.adobe.images.PNGEncoder; com.adobe.images.PNGEncoder;
+    import org.alivepdf.colors.IColor; org.alivepdf.colors.IColor;
+    import org.alivepdf.colors.RGBColor; org.alivepdf.colors.RGBColor;
+    import hu.carnation.net.LocalConnectionBitmapReceiver; hu.carnation.net.LocalConnectionBitmapReceiver;
+    import org.alivepdf.images.ImageFormat; org.alivepdf.images.ImageFormat;
+    import org.alivepdf.images.IImage; org.alivepdf.images.IImage;
+    import org.alivepdf.images.PDFImage; org.alivepdf.images.PDFImage;
+    import org.alivepdf.images.TIFFImage; org.alivepdf.images.TIFFImage;
+    import org.alivepdf.images.DoTIFFImage; org.alivepdf.images.DoTIFFImage;
+    import org.alivepdf.codabar.CodaBar; org.alivepdf.codabar.CodaBar;
+    import org.alivepdf.images.ColorSpace; org.alivepdf.images.ColorSpace;
+    import org.alivepdf.images.PNGImage; org.alivepdf.images.PNGImage;
+    import org.alivepdf.pages.Page; org.alivepdf.pages.Page;
+    import org.alivepdf.images.GIFImage; org.alivepdf.images.GIFImage;
+    import org.alivepdf.links.Outline; org.alivepdf.links.Outline;
+    import org.alivepdf.layout.Resize; org.alivepdf.layout.Resize;
+    import org.alivepdf.html.HTMLTag; org.alivepdf.html.HTMLTag;
+    import org.alivepdf.links.ILink; org.alivepdf.links.ILink;
+    import org.alivepdf.links.HTTPLink; org.alivepdf.links.HTTPLink;
+    import org.alivepdf.drawing.DashedLine; org.alivepdf.drawing.DashedLine;
+    import org.alivepdf.encoding.Base64; org.alivepdf.encoding.Base64;
+    import org.alivepdf.colors.SpotColor; org.alivepdf.colors.SpotColor;
+    import org.alivepdf.operators.Drawing; org.alivepdf.operators.Drawing;
+    import org.alivepdf.events.ProcessingEvent; org.alivepdf.events.ProcessingEvent;
+    import org.alivepdf.grid.GridRowType; org.alivepdf.grid.GridRowType;
+    import org.alivepdf.images.JPEGImage; org.alivepdf.images.JPEGImage;
+    import org.alivepdf.layout.Mode; org.alivepdf.layout.Mode;
+    import org.alivepdf.images.DoJPEGImage; org.alivepdf.images.DoJPEGImage;
+    import org.alivepdf.fonts.EmbeddedFont; org.alivepdf.fonts.EmbeddedFont;
+    import org.alivepdf.annotations.Annotation; org.alivepdf.annotations.Annotation;
+    import org.alivepdf.annotations.TextAnnotation; org.alivepdf.annotations.TextAnnotation;
+    import org.alivepdf.links.InternalLink; org.alivepdf.links.InternalLink;
+    import org.alivepdf.drawing.WindingRule; org.alivepdf.drawing.WindingRule;
+    import org.alivepdf.grid.GridCell; org.alivepdf.grid.GridCell;
+    import org.alivepdf.fonts.FontType; org.alivepdf.fonts.FontType;
+    import org.alivepdf.layout.Border; org.alivepdf.layout.Border;
+    import org.alivepdf.grid.Grid; org.alivepdf.grid.Grid;
+    import org.alivepdf.colors.GrayColor; org.alivepdf.colors.GrayColor;
+    import org.alivepdf.colors.CMYKColor; org.alivepdf.colors.CMYKColor;
+    import org.alivepdf.fonts.FontMetrics; org.alivepdf.fonts.FontMetrics;
+    import org.alivepdf.cells.CellVO; org.alivepdf.cells.CellVO;
+    import org.alivepdf.text.Cell; org.alivepdf.text.Cell;
+    import org.alivepdf.decoding.Filter; org.alivepdf.decoding.Filter;
+    import org.alivepdf.images.DoPNGImage; org.alivepdf.images.DoPNGImage;
+    import org.alivepdf.drawing.SectorDrawingCommand; org.alivepdf.drawing.SectorDrawingCommand;
+    import org.alivepdf.annotations.MovieAnnotation; org.alivepdf.annotations.MovieAnnotation;
+    import org.alivepdf.layout.Position; org.alivepdf.layout.Position;
+    import org.alivepdf.display.Display; org.alivepdf.display.Display;
+    import org.alivepdf.images.gif.player.GIFPlayer; org.alivepdf.images.gif.player.GIFPlayer;
+    import org.alivepdf.display.PageMode; org.alivepdf.display.PageMode;
+    import org.alivepdf.layout.HorizontalAlign; org.alivepdf.layout.HorizontalAlign;
+    import org.alivepdf.layout.Align; org.alivepdf.layout.Align;
+    import org.alivepdf.gradients.ShadingType; org.alivepdf.gradients.ShadingType;
+    import org.alivepdf.encoding.PNGEncoder; org.alivepdf.encoding.PNGEncoder;
+    import org.alivepdf.encoding.TIFFEncoder; org.alivepdf.encoding.TIFFEncoder;
+    import org.alivepdf.tools.sprintf; org.alivepdf.tools.sprintf;
+    import org.alivepdf.events.PageEvent; org.alivepdf.events.PageEvent;
+    import org.alivepdf.fonts.Style; org.alivepdf.fonts.Style;
+    import org.alivepdf.encoding.JPEGEncoder; org.alivepdf.encoding.JPEGEncoder;
+    import org.alivepdf.layout.Layout; org.alivepdf.layout.Layout;
+    import org.alivepdf.visibility.Visibility; org.alivepdf.visibility.Visibility;
+    import org.alivepdf.fonts.FontCollections; org.alivepdf.fonts.FontCollections;
+    import org.alivepdf.fonts.FontDescription; org.alivepdf.fonts.FontDescription;
+    import co.moodshare.pdf.images.RawImage; co.moodshare.pdf.images.RawImage;
+    import co.moodshare.pdf.decoding.PNGDecoder; co.moodshare.pdf.decoding.PNGDecoder;
+    import co.moodshare.pdf.encoding.PNGEncoder; co.moodshare.pdf.encoding.PNGEncoder;
+    import com.greensock.core.SimpleTimeline; com.greensock.core.SimpleTimeline;
+    import com.greensock.core.PropTween; com.greensock.core.PropTween;
+    import CustomButton_NewBlue_fla.CustomButton_pink_28; CustomButton_NewBlue_fla.CustomButton_pink_28;
+    import CustomButton_NewBlue_fla.cbox_29; CustomButton_NewBlue_fla.cbox_29;
+    import CustomButton_NewBlue; CustomButton_NewBlue;
+    import com.google.zxing.common.ByteMatrix; com.google.zxing.common.ByteMatrix;
+    import hu.carnation.transform.QrTransformItemManager; hu.carnation.transform.QrTransformItemManager;
+    import com.google.zxing.common.flexdatatypes.HashTable; com.google.zxing.common.flexdatatypes.HashTable;
+    import com.google.zxing.LuminanceSource; com.google.zxing.LuminanceSource;
+    import com.google.zxing.BufferedImageLuminanceSource; com.google.zxing.BufferedImageLuminanceSource;
+    import com.google.zxing.Binarizer; com.google.zxing.Binarizer;
+    import com.google.zxing.common.GlobalHistogramBinarizer; com.google.zxing.common.GlobalHistogramBinarizer;
+    import com.google.zxing.qrcode.QRCodeWriter; com.google.zxing.qrcode.QRCodeWriter;
+    import com.google.zxing.Result; com.google.zxing.Result;
+    import com.google.zxing.qrcode.QRCodeReader; com.google.zxing.qrcode.QRCodeReader;
+    import com.google.zxing.client.result.ResultParser; com.google.zxing.client.result.ResultParser;
+    import com.google.zxing.client.result.ParsedResult; com.google.zxing.client.result.ParsedResult;
+    import com.google.zxing.BinaryBitmap; com.google.zxing.BinaryBitmap;
+    import org.casalib.events.IRemovableEventDispatcher; org.casalib.events.IRemovableEventDispatcher;
+    import org.casalib.core.IDestroyable; org.casalib.core.IDestroyable;
+    import org.casalib.events.RemovableEventDispatcher; org.casalib.events.RemovableEventDispatcher;
+    import org.casalib.ui.Key; org.casalib.ui.Key;
+    import CursorPen; CursorPen;
+    import pixelmodeExitButton; pixelmodeExitButton;
+    import hu.carnation.qr.model.PixelVO; hu.carnation.qr.model.PixelVO;
+    import org.casalib.util.StageReference; org.casalib.util.StageReference;
+    import hu.carnation.qrhacker.memento.PixelMementoRecorder; hu.carnation.qrhacker.memento.PixelMementoRecorder;
+    import hu.carnation.qrhacker.display.Pixel; hu.carnation.qrhacker.display.Pixel;
+    import hu.carnation.qrhacker.memento.PixelMemento; hu.carnation.qrhacker.memento.PixelMemento;
+    import hu.carnation.synchronizer.SynchronizeSlave; hu.carnation.synchronizer.SynchronizeSlave;
+    import org.alivepdf.events.PagingEvent; org.alivepdf.events.PagingEvent;
+    import org.alivepdf.fonts.AFMParser; org.alivepdf.fonts.AFMParser;
+    import org.alivepdf.events.CharacterEvent; org.alivepdf.events.CharacterEvent;
+    import org.alivepdf.grid.GridColumn; org.alivepdf.grid.GridColumn;
+    import org.alivepdf.export.Export; org.alivepdf.export.Export;
+    import org.alivepdf.serializer.ISerializer; org.alivepdf.serializer.ISerializer;
+    import org.alivepdf.export.CSVExport; org.alivepdf.export.CSVExport;
+    import org.alivepdf.images.gif.events.TimeoutEvent; org.alivepdf.images.gif.events.TimeoutEvent;
+    import org.alivepdf.images.gif.events.GIFPlayerEvent; org.alivepdf.images.gif.events.GIFPlayerEvent;
+    import org.alivepdf.images.gif.frames.GIFFrame; org.alivepdf.images.gif.frames.GIFFrame;
+    import org.alivepdf.images.gif.errors.FileTypeError; org.alivepdf.images.gif.errors.FileTypeError;
+    import org.alivepdf.images.gif.events.FrameEvent; org.alivepdf.images.gif.events.FrameEvent;
+    import org.alivepdf.images.gif.events.FileTypeEvent; org.alivepdf.images.gif.events.FileTypeEvent;
+    import org.alivepdf.images.gif.decoder.GIFDecoder; org.alivepdf.images.gif.decoder.GIFDecoder;
+    import org.alivepdf.encoding.BitString; org.alivepdf.encoding.BitString;
+    import org.alivepdf.encoding.IntList; org.alivepdf.encoding.IntList;
+    import org.alivepdf.encoding.IntBlock; org.alivepdf.encoding.IntBlock;
+    import org.alivepdf.fonts.FontCollection; org.alivepdf.fonts.FontCollection;
+    import com.google.zxing.common.flexdatatypes.StringBuilder; com.google.zxing.common.flexdatatypes.StringBuilder;
+    import hu.carnation.utils.CropOutWhitespace; hu.carnation.utils.CropOutWhitespace;
+    import com.greensock.plugins.TweenPlugin; com.greensock.plugins.TweenPlugin;
+    import com.greensock.plugins.FilterPlugin; com.greensock.plugins.FilterPlugin;
+    import com.greensock.plugins.BlurFilterPlugin; com.greensock.plugins.BlurFilterPlugin;
+    import hu.carnation.filter.PixelateFilter; hu.carnation.filter.PixelateFilter;
+    import com.greensock.plugins.ColorMatrixFilterPlugin; com.greensock.plugins.ColorMatrixFilterPlugin;
+    import hu.carnation.transform.LassoTool; hu.carnation.transform.LassoTool;
+    import com.greensock.transform.TransformItem; com.greensock.transform.TransformItem;
+    import hu.carnation.transform.EffectsPanel; hu.carnation.transform.EffectsPanel;
+    import com.greensock.events.TransformEvent; com.greensock.events.TransformEvent;
+    import hu.carnation.transform.QrTransformToolbar; hu.carnation.transform.QrTransformToolbar;
+    import hu.carnation.transform.components.LassoToolWindow; hu.carnation.transform.components.LassoToolWindow;
+    import com.greensock.transform.TransformManager; com.greensock.transform.TransformManager;
+    import com.google.zxing.common.flexdatatypes.ArrayList; com.google.zxing.common.flexdatatypes.ArrayList;
+    import com.google.zxing.common.flexdatatypes.IllegalArgumentException; com.google.zxing.common.flexdatatypes.IllegalArgumentException;
+    import com.google.zxing.common.BitMatrix; com.google.zxing.common.BitMatrix;
+    import com.google.zxing.common.BitArray; com.google.zxing.common.BitArray;
+    import com.google.zxing.ReaderException; com.google.zxing.ReaderException;
+    import com.google.zxing.qrcode.encoder.QRCode; com.google.zxing.qrcode.encoder.QRCode;
+    import com.google.zxing.EncodeHintType; com.google.zxing.EncodeHintType;
+    import com.google.zxing.qrcode.encoder.Encoder; com.google.zxing.qrcode.encoder.Encoder;
+    import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel; com.google.zxing.qrcode.decoder.ErrorCorrectionLevel;
+    import com.google.zxing.ResultMetadataType; com.google.zxing.ResultMetadataType;
+    import com.google.zxing.BarcodeFormat; com.google.zxing.BarcodeFormat;
+    import com.google.zxing.qrcode.decoder.Decoder; com.google.zxing.qrcode.decoder.Decoder;
+    import com.google.zxing.qrcode.detector.Detector; com.google.zxing.qrcode.detector.Detector;
+    import com.google.zxing.common.DetectorResult; com.google.zxing.common.DetectorResult;
+    import com.google.zxing.common.DecoderResult; com.google.zxing.common.DecoderResult;
+    import com.google.zxing.client.result.VCardResultParser; com.google.zxing.client.result.VCardResultParser;
+    import com.google.zxing.client.result.AddressBookDocomoResultParser; com.google.zxing.client.result.AddressBookDocomoResultParser;
+    import org.casalib.util.StringUtil; org.casalib.util.StringUtil;
+    import com.google.zxing.client.result.ProductResultParser; com.google.zxing.client.result.ProductResultParser;
+    import com.google.zxing.client.result.TextParsedResult; com.google.zxing.client.result.TextParsedResult;
+    import com.google.zxing.client.result.AbstractDoCoMoResultParser; com.google.zxing.client.result.AbstractDoCoMoResultParser;
+    import com.google.zxing.client.result.BizcardResultParser; com.google.zxing.client.result.BizcardResultParser;
+    import com.google.zxing.client.result.URIResultParser; com.google.zxing.client.result.URIResultParser;
+    import com.google.zxing.client.result.ISBNResultParser; com.google.zxing.client.result.ISBNResultParser;
+    import com.google.zxing.client.result.GeoResultParser; com.google.zxing.client.result.GeoResultParser;
+    import com.google.zxing.client.result.TelResultParser; com.google.zxing.client.result.TelResultParser;
+    import com.google.zxing.client.result.VEventResultParser; com.google.zxing.client.result.VEventResultParser;
+    import com.google.zxing.client.result.EmailAddressResultParser; com.google.zxing.client.result.EmailAddressResultParser;
+    import com.google.zxing.client.result.SMSMMSResultParser; com.google.zxing.client.result.SMSMMSResultParser;
+    import com.google.zxing.client.result.URLTOResultParser; com.google.zxing.client.result.URLTOResultParser;
+    import com.google.zxing.client.result.EmailDoCoMoResultParser; com.google.zxing.client.result.EmailDoCoMoResultParser;
+    import com.google.zxing.client.result.BookmarkDoCoMoResultParser; com.google.zxing.client.result.BookmarkDoCoMoResultParser;
+    import com.google.zxing.client.result.ParsedResultType; com.google.zxing.client.result.ParsedResultType;
+    import org.casalib.core.Destroyable; org.casalib.core.Destroyable;
+    import org.casalib.events.ListenerManager; org.casalib.events.ListenerManager;
+    import org.casalib.ui.KeyCombo; org.casalib.ui.KeyCombo;
+    import org.casalib.util.ArrayUtil; org.casalib.util.ArrayUtil;
+    import org.casalib.events.KeyComboEvent; org.casalib.events.KeyComboEvent;
+    import org.casalib.util.ObjectUtil; org.casalib.util.ObjectUtil;
+    import hu.carnation.synchronizer.SynchronizeMaster; hu.carnation.synchronizer.SynchronizeMaster;
+    import org.alivepdf.fonts.CodePage; org.alivepdf.fonts.CodePage;
+    import com.greensock.plugins.HexColorsPlugin; com.greensock.plugins.HexColorsPlugin;
+    import mx.core.IFlexAsset; mx.core.IFlexAsset;
+    import mx.core.ByteArrayAsset; mx.core.ByteArrayAsset;
+    import hu.carnation.filter.PixelateFilter_Filter; hu.carnation.filter.PixelateFilter_Filter;
+    import com.greensock.plugins.EndArrayPlugin; com.greensock.plugins.EndArrayPlugin;
+    import hu.carnation.math.GraphicsHelper; hu.carnation.math.GraphicsHelper;
+    import MouseCursorMinus; MouseCursorMinus;
+    import hu.carnation.transform.ControlPoint; hu.carnation.transform.ControlPoint;
+    import MouseCursorPlus; MouseCursorPlus;
+    import CursorLasso; CursorLasso;
+    import com.greensock.transform.utils.MatrixTools; com.greensock.transform.utils.MatrixTools;
+    import hu.carnation.transform.components.EffectsPanelItem; hu.carnation.transform.components.EffectsPanelItem;
+    import com.greensock.TweenNano; com.greensock.TweenNano;
+    import CustomButton_NewBlue_fla.toolBarIconBackground_35; CustomButton_NewBlue_fla.toolBarIconBackground_35;
+    import CustomButton_NewBlue_fla.effectToolIcon_39; CustomButton_NewBlue_fla.effectToolIcon_39;
+    import CustomButton_NewBlue_fla.lassoToolIcon_38; CustomButton_NewBlue_fla.lassoToolIcon_38;
+    import CustomButton_NewBlue_fla.flipHorizontalIcon_34; CustomButton_NewBlue_fla.flipHorizontalIcon_34;
+    import CustomButton_NewBlue_fla.flipVerticalIcon_37; CustomButton_NewBlue_fla.flipVerticalIcon_37;
+    import CustomButton_NewBlue_fla.deleteToolIcon_40; CustomButton_NewBlue_fla.deleteToolIcon_40;
+    import CustomButton_NewBlue_fla.CustomButton_24; CustomButton_NewBlue_fla.CustomButton_24;
+    import com.google.zxing.ResultPoint; com.google.zxing.ResultPoint;
+    import com.google.zxing.qrcode.detector.FinderPattern; com.google.zxing.qrcode.detector.FinderPattern;
+    import com.google.zxing.datamatrix.detector.ResultPointsAndTransitions; com.google.zxing.datamatrix.detector.ResultPointsAndTransitions;
+    import com.google.zxing.qrcode.decoder.Mode; com.google.zxing.qrcode.decoder.Mode;
+    import com.google.zxing.common.zxingByteArray; com.google.zxing.common.zxingByteArray;
+    import com.google.zxing.qrcode.encoder.MatrixUtil; com.google.zxing.qrcode.encoder.MatrixUtil;
+    import com.google.zxing.qrcode.encoder.MaskUtil; com.google.zxing.qrcode.encoder.MaskUtil;
+    import com.google.zxing.common.ECI; com.google.zxing.common.ECI;
+    import com.google.zxing.common.CharacterSetECI; com.google.zxing.common.CharacterSetECI;
+    import com.google.zxing.qrcode.decoder.ECBlocks; com.google.zxing.qrcode.decoder.ECBlocks;
+    import com.google.zxing.qrcode.encoder.BlockPair; com.google.zxing.qrcode.encoder.BlockPair;
+    import com.google.zxing.common.reedsolomon.GF256; com.google.zxing.common.reedsolomon.GF256;
+    import com.google.zxing.qrcode.decoder.Version; com.google.zxing.qrcode.decoder.Version;
+    import com.google.zxing.common.reedsolomon.ReedSolomonEncoder; com.google.zxing.common.reedsolomon.ReedSolomonEncoder;
+    import com.google.zxing.qrcode.encoder.BitVector; com.google.zxing.qrcode.encoder.BitVector;
+    import com.google.zxing.qrcode.decoder.BitMatrixParser; com.google.zxing.qrcode.decoder.BitMatrixParser;
+    import com.google.zxing.qrcode.decoder.DataBlock; com.google.zxing.qrcode.decoder.DataBlock;
+    import com.google.zxing.common.reedsolomon.ReedSolomonDecoder; com.google.zxing.common.reedsolomon.ReedSolomonDecoder;
+    import com.google.zxing.common.reedsolomon.ReedSolomonException; com.google.zxing.common.reedsolomon.ReedSolomonException;
+    import com.google.zxing.qrcode.decoder.DecodedBitStreamParser; com.google.zxing.qrcode.decoder.DecodedBitStreamParser;
+    import com.google.zxing.qrcode.detector.FinderPatternFinder; com.google.zxing.qrcode.detector.FinderPatternFinder;
+    import com.google.zxing.qrcode.detector.AlignmentPattern; com.google.zxing.qrcode.detector.AlignmentPattern;
+    import com.google.zxing.qrcode.detector.FinderPatternInfo; com.google.zxing.qrcode.detector.FinderPatternInfo;
+    import com.google.zxing.qrcode.detector.AlignmentPatternFinder; com.google.zxing.qrcode.detector.AlignmentPatternFinder;
+    import com.google.zxing.common.GridSampler; com.google.zxing.common.GridSampler;
+    import com.google.zxing.client.result.AddressBookParsedResult; com.google.zxing.client.result.AddressBookParsedResult;
+    import com.google.zxing.common.flexdatatypes.Utils; com.google.zxing.common.flexdatatypes.Utils;
+    import org.casalib.util.NumberUtil; org.casalib.util.NumberUtil;
+    import com.google.zxing.client.result.ProductParsedResult; com.google.zxing.client.result.ProductParsedResult;
+    import com.google.zxing.client.result.URIParsedResult; com.google.zxing.client.result.URIParsedResult;
+    import com.google.zxing.client.result.ISBNParsedResult; com.google.zxing.client.result.ISBNParsedResult;
+    import com.google.zxing.client.result.GeoParsedResult; com.google.zxing.client.result.GeoParsedResult;
+    import com.google.zxing.client.result.TelParsedResult; com.google.zxing.client.result.TelParsedResult;
+    import com.google.zxing.client.result.CalendarParsedResult; com.google.zxing.client.result.CalendarParsedResult;
+    import com.google.zxing.client.result.EmailAddressParsedResult; com.google.zxing.client.result.EmailAddressParsedResult;
+    import com.google.zxing.client.result.SMSParsedResult; com.google.zxing.client.result.SMSParsedResult;
+    import org.casalib.errors.ArrayContentsError; org.casalib.errors.ArrayContentsError;
+    import hu.carnation.math.MathUtils; hu.carnation.math.MathUtils;
+    import org.alivepdf.fonts.CodePage_CP1257; org.alivepdf.fonts.CodePage_CP1257;
+    import org.alivepdf.fonts.CodePage_KOI8U; org.alivepdf.fonts.CodePage_KOI8U;
+    import org.alivepdf.fonts.CodePage_CP1258; org.alivepdf.fonts.CodePage_CP1258;
+    import org.alivepdf.fonts.CodePage_CP1255; org.alivepdf.fonts.CodePage_CP1255;
+    import org.alivepdf.fonts.CodePage_KOI8R; org.alivepdf.fonts.CodePage_KOI8R;
+    import org.alivepdf.fonts.CodePage_CP1253; org.alivepdf.fonts.CodePage_CP1253;
+    import org.alivepdf.fonts.CodePage_CP1254; org.alivepdf.fonts.CodePage_CP1254;
+    import org.alivepdf.fonts.CodePage_CP1251; org.alivepdf.fonts.CodePage_CP1251;
+    import org.alivepdf.fonts.CodePage_CP1252; org.alivepdf.fonts.CodePage_CP1252;
+    import org.alivepdf.fonts.CodePage_CP1250; org.alivepdf.fonts.CodePage_CP1250;
+    import mx.core.mx_internal; mx.core.mx_internal;
+    import ColorPicker_textFieldSkin; ColorPicker_textFieldSkin;
+    import CustomButton_NewBlue_fla.itemBottomBg_19; CustomButton_NewBlue_fla.itemBottomBg_19;
+    import fl.core.UIComponent; fl.core.UIComponent;
+    import fl.managers.IFocusManagerComponent; fl.managers.IFocusManagerComponent;
+    import fl.controls.ColorPicker; fl.controls.ColorPicker;
+    import hu.carnation.transform.components.Slider; hu.carnation.transform.components.Slider;
+    import ColorPicker_swatchSkin; ColorPicker_swatchSkin;
+    import fl.core.ComponentShim; fl.core.ComponentShim;
+    import ColorPicker_downSkin; ColorPicker_downSkin;
+    import fl.events.ColorPickerEvent; fl.events.ColorPickerEvent;
+    import ColorPicker_upSkin; ColorPicker_upSkin;
+    import ColorPicker_colorWell; ColorPicker_colorWell;
+    import com.greensock.easing.Strong; com.greensock.easing.Strong;
+    import ColorPicker_overSkin; ColorPicker_overSkin;
+    import hu.carnation.transform.components.CheckBox; hu.carnation.transform.components.CheckBox;
+    import ColorPicker_disabledSkin; ColorPicker_disabledSkin;
+    import ColorPicker_backgroundSkin; ColorPicker_backgroundSkin;
+    import ColorPicker_swatchSelectedSkin; ColorPicker_swatchSelectedSkin;
+    import com.google.zxing.WriterException; com.google.zxing.WriterException;
+    import com.google.zxing.qrcode.decoder.ECB; com.google.zxing.qrcode.decoder.ECB;
+    import com.google.zxing.common.reedsolomon.GF256Poly; com.google.zxing.common.reedsolomon.GF256Poly;
+    import com.google.zxing.qrcode.decoder.FormatInformation; com.google.zxing.qrcode.decoder.FormatInformation;
+    import com.google.zxing.qrcode.decoder.DataMask; com.google.zxing.qrcode.decoder.DataMask;
+    import com.google.zxing.qrcode.decoder.DataMaskBase; com.google.zxing.qrcode.decoder.DataMaskBase;
+    import com.google.zxing.common.BitSource; com.google.zxing.common.BitSource;
+    import com.google.zxing.DecodeHintType; com.google.zxing.DecodeHintType;
+    import com.google.zxing.common.PerspectiveTransform; com.google.zxing.common.PerspectiveTransform;
+    import org.casalib.math.Percent; org.casalib.math.Percent;
+    import fl.managers.IFocusManager; fl.managers.IFocusManager;
+    import fl.core.InvalidationType; fl.core.InvalidationType;
+    import fl.managers.FocusManager; fl.managers.FocusManager;
+    import fl.events.ComponentEvent; fl.events.ComponentEvent;
+    import fl.managers.StyleManager; fl.managers.StyleManager;
+    import fl.controls.BaseButton; fl.controls.BaseButton;
+    import org.casalib.math.Range; org.casalib.math.Range;
+    import com.google.zxing.qrcode.decoder.DataMask011; com.google.zxing.qrcode.decoder.DataMask011;
+    import com.google.zxing.qrcode.decoder.DataMask110; com.google.zxing.qrcode.decoder.DataMask110;
+    import com.google.zxing.qrcode.decoder.DataMask010; com.google.zxing.qrcode.decoder.DataMask010;
+    import com.google.zxing.qrcode.decoder.DataMask111; com.google.zxing.qrcode.decoder.DataMask111;
+    import com.google.zxing.qrcode.decoder.DataMask100; com.google.zxing.qrcode.decoder.DataMask100;
+    import com.google.zxing.qrcode.decoder.DataMask000; com.google.zxing.qrcode.decoder.DataMask000;
+    import com.google.zxing.qrcode.decoder.DataMask001; com.google.zxing.qrcode.decoder.DataMask001;
+    import com.google.zxing.qrcode.decoder.DataMask101; com.google.zxing.qrcode.decoder.DataMask101;
+    import fl.controls.LabelButton; fl.controls.LabelButton;
+    import fl.controls.Button; fl.controls.Button;
+    import fl.managers.IFocusManagerGroup; fl.managers.IFocusManagerGroup;
+    import fl.controls.ButtonLabelPlacement; fl.controls.ButtonLabelPlacement;

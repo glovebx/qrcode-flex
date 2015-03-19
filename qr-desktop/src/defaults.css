@@ -1,0 +1,22 @@
+/* CSS file */
+@namespace s "library://ns.adobe.com/flex/spark";
+@namespace mx "library://ns.adobe.com/flex/mx";
+
+s|Application {
+	fontFamily: "黑体";
+	fontSize: 18px;
+}
+
+.title_1 {
+	fontSize: 32px;
+	fontColor: #000000;
+	fontWeight: bold;
+}
+
+.title_2 {
+	fontSize: 24px;
+	fontColor: #000000;
+	fontWeight: bold;
+}
+
+

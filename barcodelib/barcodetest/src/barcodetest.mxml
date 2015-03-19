@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Application xmlns:fx="http://ns.adobe.com/mxml/2009" 
+			   xmlns:s="library://ns.adobe.com/flex/spark" 
+			   xmlns:mx="library://ns.adobe.com/flex/mx" fontFamily="Simsun" 
+			   minWidth="955" minHeight="600" creationComplete="Init()">
+	<!--
+	
+	Copyright (c) 2012, Hunk.Cai
+	All rights reserved.
+	
+	创建人：Hunk.Cai
+	修改人：
+	
+	-->
+	<s:layout>
+		<s:VerticalLayout paddingLeft="64" paddingTop="64" paddingRight="64"/>
+	</s:layout>
+	<fx:Script>
+		<![CDATA[
+			import barcode.BarcodeDecodeUtil;
+			import barcode.BarcodeUtil;
+			import scan.ScanForm;
+			
+			import mx.controls.Alert;
+			private function Init():void
+			{
+ 
+				
+			}
+			
+			private function GenerateEAN8():void
+			{
+				var w:int = int(_Width.text);
+				var h:int = int(_Height.text);
+				var bmpd:BitmapData = barcode.BarcodeUtil.Generate(BarcodeUtil.TYPE_EAN_8, EAN_8.text, w, h);
+				ImageEAN_8.source = bmpd;
+			}
+			private function GenerateEAN13():void
+			{
+				var w:int = int(_Width.text);
+				var h:int = int(_Height.text);
+				var bmpd:BitmapData = barcode.BarcodeUtil.Generate(BarcodeUtil.TYPE_EAN_13, EAN_13.text, w, h);
+				ImageEAN_13.source = bmpd;
+			}
+			private function GenerateUPCA():void
+			{
+				var w:int = int(_Width.text);
+				var h:int = int(_Height.text);
+				var bmpd:BitmapData = barcode.BarcodeUtil.Generate(BarcodeUtil.TYPE_UPC_A, UPC_A.text, w, h);
+				ImageUPC_A.source = bmpd;
+			}
+			private function GenerateCODE39():void
+			{
+				var w:int = int(_Width.text);
+				var h:int = int(_Height.text);
+				var bmpd:BitmapData = barcode.BarcodeUtil.Generate(BarcodeUtil.TYPE_CODE_39, CODE_39.text, w, h);
+				ImageCODE_39.source = bmpd;
+			}
+ 
+			private function GenerateCODE128():void
+			{
+				var w:int = int(_Width.text);
+				var h:int = int(_Height.text);
+				var bmpd:BitmapData = barcode.BarcodeUtil.Generate(BarcodeUtil.TYPE_CODE_128, CODE_128.text, w, h);
+				ImageCODE_128.source = bmpd;
+			}
+		 
+			private function GenerateITF():void
+			{
+				var w:int = int(_Width.text);
+				var h:int = int(_Height.text);
+				var bmpd:BitmapData = barcode.BarcodeUtil.Generate(BarcodeUtil.TYPE_ITF, ITF.text, w, h);
+				ImageITF.source = bmpd;
+			}
+			private function GenerateQRCODE():void
+			{
+				var w:int = int(_Width.text);
+				var h:int = int(_Width.text);
+				try
+				{
+					var bmpd:BitmapData = barcode.BarcodeUtil.Generate(BarcodeUtil.TYPE_QR_CODE, QR_CODE.text, w, h);
+				}
+				catch(e:Error)
+				{
+					mx.controls.Alert.show(e.message, "错误");
+				}
+				
+				ImageQR_CODE.source = bmpd;
+			}
+			private function ShowScanForm():void
+			{
+				ScanForm.Instance.Show(function(scan:BitmapData):void
+				{
+					Decode(scan);
+					
+					
+				}, false);
+			}
+			
+			private function DecodeImage(image:Image):void
+			{
+				var bmpd:BitmapData = image.source as BitmapData;
+				if(bmpd)
+					Decode(bmpd);
+			}
+			private function Decode(bmpd:BitmapData):void
+			{
+				ImageScan.source = bmpd;
+				try
+				{
+					var decode:String = barcode.BarcodeDecodeUtil.DecodeBitmapData(bmpd);
+					Output.text = decode;
+				}
+				catch(e:Error)
+				{
+					Output.text = e.message;
+				}
+			}
+		]]>
+	</fx:Script>
+	<s:HGroup verticalAlign="middle">
+		<s:Label text="条形码宽度："/>
+		<s:TextInput id="_Width" text="200"/>
+		<s:Label text="条形码高度："/>
+		<s:TextInput id="_Height" text="80"/>
+		<s:Button label="摄像头采集" click="ShowScanForm()"/>
+	</s:HGroup>
+
+	<mx:TabNavigator width="100%" height="320" backgroundAlpha="0">
+		<s:NavigatorContent label="EAN_8" width="100%" height="100%">
+			<s:layout>
+				<s:VerticalLayout gap="32" paddingLeft="32"/>
+			</s:layout>
+			<s:HGroup width="400" verticalAlign="middle">
+				<s:TextInput id="EAN_8" width="200" text="1234456"/>
+				<s:Button label="生成" click="GenerateEAN8()"/>			
+				<s:Button label="解码" click="DecodeImage(ImageEAN_8)"/>
+			</s:HGroup>
+			<s:Image id="ImageEAN_8"/>
+		</s:NavigatorContent>
+		<s:NavigatorContent label="EAN_13" width="100%" height="100%">
+			<s:layout>
+				<s:VerticalLayout gap="32" paddingLeft="32"/>
+			</s:layout>
+			<s:HGroup width="400" verticalAlign="middle">
+				<s:TextInput id="EAN_13" width="200" text="987654321012"/>
+				<s:Button label="生成" click="GenerateEAN13()"/>
+				<s:Button label="解码" click="DecodeImage(ImageEAN_13)"/>
+			</s:HGroup>
+			<s:Image id="ImageEAN_13"/>
+		</s:NavigatorContent>
+		<s:NavigatorContent label="UPC_A" width="100%" height="100%">
+			<s:layout>
+				<s:VerticalLayout gap="32" paddingLeft="32"/>
+			</s:layout>
+			<s:HGroup width="400" verticalAlign="middle">
+				<s:TextInput id="UPC_A" width="200" text="98765432109"/>
+				<s:Button label="生成" click="GenerateUPCA()"/>
+				<s:Button label="解码" click="DecodeImage(ImageUPC_A)"/>
+			</s:HGroup>
+			<s:Image id="ImageUPC_A"/>
+		</s:NavigatorContent>
+		<s:NavigatorContent label="CODE_39" width="100%" height="100%">
+			<s:layout>
+				<s:VerticalLayout gap="32" paddingLeft="32"/>
+			</s:layout>
+			<s:HGroup width="400" verticalAlign="middle">
+				<s:TextInput id="CODE_39" width="200" text="9876AZ5432109"/>
+				<s:Button label="生成" click="GenerateCODE39()"/>
+				<s:Button label="解码" click="DecodeImage(ImageCODE_39)"/>
+			</s:HGroup>
+			<s:Image id="ImageCODE_39"/>
+		</s:NavigatorContent>
+		<s:NavigatorContent label="CODE_128" width="100%" height="100%">
+			<s:layout>
+				<s:VerticalLayout gap="32" paddingLeft="32"/>
+			</s:layout>
+			<s:HGroup width="400" verticalAlign="middle">
+				<s:TextInput id="CODE_128" y="-32" width="200" text="9876SDsdf5432109"/>
+				<s:Button label="生成" click="GenerateCODE128()"/>
+				<s:Button label="解码" click="DecodeImage(ImageCODE_128)"/>
+			</s:HGroup>
+			<s:Image id="ImageCODE_128"/>
+		</s:NavigatorContent>
+		<s:NavigatorContent label="ITF" width="100%" height="100%">
+			<s:layout>
+				<s:VerticalLayout gap="32" paddingLeft="32"/>
+			</s:layout>
+			<s:HGroup width="400" verticalAlign="middle">
+				<s:TextInput id="ITF" width="200" text="665544"/>
+				<s:Button label="生成" click="GenerateITF()"/>
+				<s:Button label="解码" click="DecodeImage(ImageITF)"/>
+			</s:HGroup>
+			<s:Image id="ImageITF"/>
+		</s:NavigatorContent>
+		<s:NavigatorContent label="QR_CODE" width="100%" height="100%">
+			<s:layout>
+				<s:VerticalLayout gap="32" paddingLeft="32"/>
+			</s:layout>
+			<s:HGroup width="400" verticalAlign="middle">
+				<mx:TextArea id="QR_CODE" y="12" width="252" height="54"
+							 text="98765432109中文-1234-334ABC&#xd;编号：sf324324&#xd;属性：Name"/>
+				<s:Button label="生成" click="GenerateQRCODE()"/>
+				<s:Button label="解码" click="DecodeImage(ImageQR_CODE)"/>
+			</s:HGroup>
+			<s:Image id="ImageQR_CODE"/>
+		</s:NavigatorContent>	
+	</mx:TabNavigator>
+	<s:HGroup verticalAlign="middle">
+		<s:Label text="解码输出："/>
+		<s:Label id="Output"/>
+		<s:Label text="解码图片："/>
+		<s:Image id="ImageScan"/>
+	</s:HGroup>
+</s:Application>

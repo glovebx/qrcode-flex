@@ -1,0 +1,793 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:WindowedApplication xmlns:fx="http://ns.adobe.com/mxml/2009" 
+					   xmlns:s="library://ns.adobe.com/flex/spark" 
+					   xmlns:mx="library://ns.adobe.com/flex/mx"
+					   xmlns:debugger="com.demonsters.debugger.*" 
+					   implements="hu.carnation.qrhacker.IMain" 
+					   creationComplete="onCreationCompleteHandler(event)">
+	
+	<fx:Script>
+		<![CDATA[
+			import com.greensock.TweenLite;
+			
+			import mx.controls.Alert;
+			import mx.events.DropdownEvent;
+			import mx.events.FlexEvent;
+			
+			import com.adobe.images.PNGEncoder;
+			//import mx.graphics.codec.PNGEncoder;
+			
+			import co.moodshare.pdf.MSPDF;
+			
+			import hu.carnation.qr.QrCodeHandler;
+			import hu.carnation.qr.event.QrCodeEvent;
+			import hu.carnation.qr.model.Model;
+			import hu.carnation.qrhacker.BackgroundView;
+			import hu.carnation.qrhacker.ForegroundView;
+			import hu.carnation.qrhacker.PhotoView;
+			import hu.carnation.qrhacker.QrCodeDisplay;
+			import hu.carnation.qrhacker.UploadHandler;
+			import hu.carnation.transform.components.SaveView;
+			
+			import org.alivepdf.layout.Orientation;
+			import org.alivepdf.layout.Size;
+			import org.alivepdf.layout.Unit;
+			import org.alivepdf.saving.Method;
+			import org.casalib.ui.Key; 
+			org.casalib.ui.Key;
+			
+			public static const QR_SIZE:Number = 480;
+			
+			private var model:Model;
+			private var pdf:MSPDF;
+			private var uploadURLLoader:URLLoader;
+			private var uploadHandler:UploadHandler;
+			private var qrCodeController:QrCodeHandler;
+			private var qrCodeDisplay:QrCodeDisplay;
+			
+			private var foregroundView:ForegroundView;
+			private var backgroundView:BackgroundView;
+			private var photoView:PhotoView;
+			private var saveView:SaveView;
+			
+			private var fileReference:FileReference;
+			private var photoLoader:Loader;
+			private var bitmapLoader:Loader;
+			
+			private var _isQRValid:Boolean = false;
+			
+			private const URL_PATTERN:String = "(http(s)?:\/\/){1}(([a-z]+[a-z0-9\-]*[.])?([a-z0-9]+[a-z0-9\-]*[.])+[a-z]{2,3}|localhost)(\/[a-z0-9_-]+[a-z0-9_ -]*)*\/?(\\?[a-z0-9_-]+=[a-z0-9 ',.-]*(&amp;[a-z0-9_-]+=[a-z0-9 ',.-]*)*)?(#[a-z0-9/_-]*)?$";
+			
+			protected function onCreationCompleteHandler(event:FlexEvent):void
+			{
+				this.model = new Model();
+				this.model.pixelColor = 0;
+				this.model.qrSize = QR_SIZE;
+				this.model.cornerRadius = 0;
+				this.model.brightness = 1.5;
+				
+				//this.model.backgroundColor = 0x333333;
+//				var params:Object = LoaderInfo(this.root.loaderInfo).parameters;
+//				for (o in params) {
+//					trace(((("Main - init param: " + o) + ", ") + params[o]));
+//					if (o == "role"){
+//						this.model.role = params[o];
+//					};
+//				};
+				this.uploadHandler = new UploadHandler(this.model);
+				
+				this.qrCodeController = new QrCodeHandler(this.model);
+				this.qrCodeController.addEventListener(QrCodeEvent.DECODE_COMPLETE, this.qrCodeHandler, false, 0, true);
+				this.qrCodeController.addEventListener(QrCodeEvent.DECODE_ERROR, this.qrCodeHandler, false, 0, true);
+				this.qrCodeController.addEventListener(QrCodeEvent.ENCODE_COMPLETE, this.qrCodeHandler, false, 0, true);
+				this.qrCodeController.addEventListener(QrCodeEvent.ENCODE_ERROR, this.qrCodeHandler, false, 0, true);				
+//				
+//				this.qrCodeController.percentWidth = 100;
+//				this.qrCodeController.percentHeight = 100;
+//				qrDisplayContainer.addElement(this.qrCodeController);
+				
+				this.qrCodeDisplay = new QrCodeDisplay(this.model, this);
+				this.qrCodeDisplay.addEventListener(QrCodeDisplay.PIXEL_DRAW_START, this.qrDisplayHandler, false, 0, true);
+				this.qrCodeDisplay.addEventListener(QrCodeDisplay.PIXEL_DRAW_FINISH, this.qrDisplayHandler, false, 0, true);
+				this.qrCodeDisplay.percentWidth = 100;
+				this.qrCodeDisplay.percentHeight = 100;
+				qrDisplayContainer.addElement(this.qrCodeDisplay);
+				
+				this.backgroundView = new BackgroundView(this.model, this.uploadHandler, this);
+				//addChildAt(this.backgroundView, 0);
+				qrDisplayContainer.addElementAt(this.backgroundView, 0);
+				
+				this.foregroundView = new ForegroundView(this.model, this.uploadHandler, this);
+				//addChild(this.foregroundView);
+				qrDisplayContainer.addElement(this.foregroundView);
+				
+				this.foregroundView.mouseEnabled = false;
+				this.photoView = new PhotoView(this.model, this.uploadHandler, this);
+				//addChild(this.photoView);
+				qrDisplayContainer.addElement(this.photoView);
+				
+				monsterDebugger.trace(this, "Hello World!");
+			}
+			
+			public function generateQrCode(str:String, type:String = ""):void{
+//				this.saveView.visible = false;
+				trace(((("Main.generateQrCode(str) " + str) + ", type: ") + type));
+				this.model.encodeString = str;
+				this.model.encodeType = type;
+				this.qrCodeDisplay.disableCustomColoring();
+				this.qrCodeController.generateQrCode(str);
+			}
+
+			protected function qrDisplayHandler(e:Event):void{
+				switch (e.type){
+					case QrCodeDisplay.PIXEL_DRAW_START:
+						this.foregroundView.alpha = 0.5;
+						this.photoView.alpha = 0.5;
+						this.photoView.disable();
+						this.photoView.mouseEnabled = false;
+						break;
+					case QrCodeDisplay.PIXEL_DRAW_FINISH:
+						this.foregroundView.alpha = 1;
+						this.photoView.alpha = 1;
+						this.photoView.enable();
+						this.photoView.mouseEnabled = true;
+						if (this.foregroundView){
+							this.foregroundView.updateMask();
+						};
+						trace(("Main.qrDisplayHandler(e) foregroundViewalpha: " + this.foregroundView.alpha));
+						break;
+				};
+			}
+
+			
+			protected function qrCodeHandler(e:Event):void{
+				switch (e.type){
+					case QrCodeEvent.ENCODE_COMPLETE:
+						this.checkQR();
+						this.foregroundView.qrCodeDisplay = this.qrCodeDisplay;
+						this.qrCodeDisplay.addEventListener(Event.CHANGE, this.onQRDisplayChange, false, 0, true);
+						break;
+				};
+			}
+			protected function onQRDisplayChange(e:Event):void{
+				this.checkQR();
+			}
+			
+			private function shotAllElements(bigSize:Boolean=false):Bitmap{
+				var bitmapData:BitmapData;
+				var bitmap:Bitmap;
+				var scaleMatrix:Matrix;
+				var w:int;
+				var padding:int;
+				var matrix:Matrix;
+				if (bigSize){
+					bitmapData = new BitmapData((3 * qrDisplayContainer.width), (3 * qrDisplayContainer.height), true, 0xFFFFFFFF);
+					bitmap = new Bitmap(bitmapData);
+					bitmapData.draw(this.backgroundView.getBitmap());
+					scaleMatrix = new Matrix();
+					scaleMatrix.scale(3, 3);
+					w = ((3 * this.model.pixelSize) * this.model.qrMatrix.width());
+					padding = int((((3 * QR_SIZE) - w) / 2));
+					matrix = new Matrix();
+					matrix.translate((padding / 3), (padding / 3));
+					matrix.scale(3, 3);
+					bitmapData.draw(this.qrCodeDisplay, matrix);
+					bitmapData.draw(this.foregroundView.getBitmap());
+					bitmapData.draw(this.photoView.getBitmap());
+				} else {
+					//bitmapData = new BitmapData(stage.stageWidth, stage.stageHeight, true, 0xFFFFFFFF);
+					bitmapData = new BitmapData(qrDisplayContainer.width, qrDisplayContainer.height, true, 0xFFFFFFFF);
+					bitmap = new Bitmap(bitmapData);
+					bitmapData.draw(this.qrDisplayContainer);
+				};
+				return (bitmap);
+			}
+			
+			public function set isQRValid(value:Boolean):void{
+				this._isQRValid = value;
+			}
+			public function get isQRValid():Boolean{
+				return (this._isQRValid);
+			}
+			
+			
+			public function checkQR():void {
+				var errorPercent:Number;
+				trace("check QR");
+				if (!this.model.qrMatrix){
+					return;
+				};
+				if (this.qrCodeDisplay.isDrawing){
+					this.qrCodeDisplay.hideCustomMousePointer();
+				};
+				if (this.photoView){
+					this.photoView.deselectAllItem();
+					this.photoView.alpha = 1;
+				};
+				if (this.foregroundView){
+					this.foregroundView.alpha = 1;
+				};
+				var result:Object = this.qrCodeController.decodeBitmap(this.shotAllElements());
+				trace(result);
+				if (((this.photoView) && (this.qrCodeDisplay.isDrawing))){
+					this.photoView.alpha = 0.5;
+				};
+				if (((this.foregroundView) && (this.qrCodeDisplay.isDrawing))){
+					this.foregroundView.alpha = 0.5;
+				};
+				if (result.text){
+					trace(("Main.checkQR(): " + result.text));
+					errorPercent = int(((Number(result.error) / 30) * 100));
+					if (ExternalInterface.available){
+						ExternalInterface.call("displayError", errorPercent);
+					};
+					this.isQRValid = true;
+				} else {
+					this.isQRValid = false;
+					trace(("Main.checkQR() " + result.errorText));
+					if (ExternalInterface.available){
+						ExternalInterface.call("displayError", -1);
+					};
+				};
+				if (this.qrCodeDisplay.isDrawing){
+					this.qrCodeDisplay.showCustomMousePointer();
+				};
+			}
+			
+			public function setForegroundURL(url:String):void{
+				this.model.foregroundURL = url;
+				this.qrCodeDisplay.disableCustomColoring();
+			}
+			
+			// 设置背景图片的url
+			public function setBackgroundURL(url:String):void{
+				this.qrCodeDisplay.disableCustomColoring();
+				if (this.model.qrMatrix){
+					this.model.backgroundURL = url;
+				};
+			}
+			
+			// 设置前景
+			public function setForegroundColor(color:String):void{
+				this.model.foregroundColor = (((color)!="") ? uint(this.fixColorCode(color)) : 0);
+				this.qrCodeDisplay.disableCustomColoring();
+				TweenLite.delayedCall(0.2, this.checkQR);
+			}
+			
+			public function setBackgroundAlpha(value:Number):void{
+				this.qrCodeDisplay.disableCustomColoring();
+				this.model.backgroundAlpha = value;
+			}
+			
+			public function setBackgroundColor(str:String):void{
+				this.qrCodeDisplay.disableCustomColoring();
+				this.model.backgroundColor = (((str)!="") ? uint(this.fixColorCode(str)) : 0xFFFFFF);
+			}
+			
+			// 设置二维码像素的圆角
+			public function setRoundedCorner(radius:Number):void{
+				this.model.cornerRadius = radius;
+			}
+			
+			private function fixColorCode(color:String):String{
+				var validColor:String;
+				var submittedColor:String = color;
+				var pattern:RegExp = /#/;
+				submittedColor = color.replace(pattern, "");
+				pattern = /0x/;
+				if (submittedColor.substring(0, 2) != "0x"){
+					validColor = ("0x" + submittedColor);
+				} else {
+					validColor = submittedColor;
+				};
+				return (validColor);
+			}
+			
+			// 获取QR的png格式数据
+			public function getQrPNG(bigSize:Boolean=false, qrhackeroverlay:Boolean=false):ByteArray{
+				var pngByteArray:ByteArray;
+				var bitmap:Bitmap;
+				var bitmapDataWithOverlay:BitmapData;
+				if (this.saveView){
+					this.saveView.visible = false;
+				};
+				if (this.qrCodeDisplay.isDrawing){
+					this.qrCodeDisplay.hideCustomMousePointer();
+				};
+				var footerMatrix:Matrix = new Matrix();
+				// 此部分是版权标记
+//				var footerOverlay:BitmapData = new PNGFooter(1, 1);
+				bitmap = this.shotAllElements(bigSize);
+				if (bigSize){
+					if (qrhackeroverlay){
+						bitmapDataWithOverlay = new BitmapData((3 * qrDisplayContainer.width), (3 * (qrDisplayContainer.height + 40)));
+						bitmapDataWithOverlay.draw(bitmap);
+						footerMatrix.translate(0, qrDisplayContainer.height);
+						footerMatrix.scale(3, 3);
+					} else {
+						//bitmapDataWithOverlay = new BitmapData((3 * stage.stageWidth), (3 * stage.stageHeight));
+						bitmapDataWithOverlay = new BitmapData(3 * qrDisplayContainer.width, 3 * qrDisplayContainer.height);
+						bitmapDataWithOverlay.draw(bitmap);
+					};
+				} else {
+					if (qrhackeroverlay){
+						bitmapDataWithOverlay = new BitmapData(qrDisplayContainer.width, (qrDisplayContainer.height + 40));
+						bitmapDataWithOverlay.draw(bitmap);
+						footerMatrix.translate(0, qrDisplayContainer.height);
+					} else {
+						//bitmapDataWithOverlay = new BitmapData(stage.stageWidth, stage.stageHeight);
+						bitmapDataWithOverlay = new BitmapData(qrDisplayContainer.width, qrDisplayContainer.height);
+						bitmapDataWithOverlay.draw(bitmap);
+					};
+				};
+				if (qrhackeroverlay){
+//					bitmapDataWithOverlay.draw(footerOverlay, footerMatrix);
+				};
+				//var pe:PNGEncoder = new PNGEncoder(); 
+				pngByteArray = PNGEncoder.encode(bitmapDataWithOverlay);
+				if (this.qrCodeDisplay.isDrawing){
+					this.qrCodeDisplay.showCustomMousePointer();
+				};
+				if (this.saveView){
+					this.saveView.visible = true;
+				};
+				return (pngByteArray);
+			}
+			
+			
+			public function redoPixel():void{
+				this.qrCodeDisplay.redo();
+			}
+			
+			public function resetPhotos():void{
+				this.qrCodeDisplay.disableCustomColoring();
+				this.photoView.dispose();
+			}
+			
+			public function closePixelMode():void{
+				this.model.pixelType = -1;
+			}
+			
+			public function resetCustomPixelColor():void{
+				this.model.pixelType = -1;
+				this.qrCodeDisplay.resetAllCustomPixelColor();
+				TweenLite.delayedCall(0.2, this.checkQR);
+			}
+			
+			public function resetQR():void {
+				this.qrCodeDisplay.disableCustomColoring();
+				this.foregroundView.dispose();
+				this.backgroundView.dispose();
+				this.photoView.dispose();
+				this.model.backgroundAlpha = 1;
+				this.model.foregroundAlpha = 1;
+				this.model.backgroundColor = 0xFFFFFF;
+				this.model.foregroundColor = 0;
+				this.model.cornerRadius = 0;
+			}
+			
+			public function setPhotoURL(url:String):void{
+				this.qrCodeDisplay.disableCustomColoring();
+				if (this.model.qrMatrix){
+					this.model.photoURL = url;
+				};
+			}
+			
+			private function setAdvancedPixelSize(size:int):void{
+				trace(("Main.setAdvancedPixelSize(size): " + size));
+				this.model.pixelType = size;
+			}
+			
+			public function resetBackgroundBitmap(s:String=null):void{
+				this.qrCodeDisplay.disableCustomColoring();
+				this.backgroundView.resetBitmap();
+			}
+			
+			private function toggleQrPixel():void{
+				trace("Main.toggleQrPixel()");
+				this.qrCodeDisplay.toggleOriginalQrPixels();
+			}
+			
+			public function resetForeground(s:String=null):void{
+				this.qrCodeDisplay.disableCustomColoring();
+				this.foregroundView.resetBitmap();
+			}
+			
+			protected function onBtnSave$Click(e:MouseEvent):void{
+				var qrPNG:ByteArray;
+				var bigQRPNG:ByteArray;
+				var pdfbytes:ByteArray;
+				trace("onSaveClick");
+				this.qrCodeDisplay.disableCustomColoring();
+//				if ((((((this.model.role == "FREE")) || ((this.model.role == "REG")))) || ((this.model.role == "GUEST")))){
+//					qrPNG = this.getQrPNG(false, true);
+//				} else {
+					qrPNG = this.getQrPNG(false, false);
+					bigQRPNG = this.getQrPNG(true, false);
+//				};
+				var file:FileReference = new FileReference();
+				file.addEventListener(Event.COMPLETE, this.onFileSaved, false, 0, true);
+				file.addEventListener(Event.CANCEL, this.onFileSaveCancel, false, 0, true);
+				
+				var saveType:String =  (e.target as Button).id;
+				
+				if (saveType == 'btnSavePNG'){
+					file.save(qrPNG, "QRHacker.com.png");
+				} else {
+					if (saveType == 'btnSavePDF'){
+						this.pdf = new MSPDF(Orientation.PORTRAIT, Unit.POINT, false, Size.A4);
+						this.pdf.addPage();
+						this.backgroundView.updatePDF(this.pdf);						
+						this.qrCodeDisplay.generateQrToPDF(this.pdf);
+						this.foregroundView.updatePDF(this.pdf);
+						this.photoView.updatePDF(this.pdf);
+						
+//						// 因为 photoView的PNG图片在PDF里无法透明创建，所以只能出此下策 
+//						var photoBitmapData:BitmapData = new BitmapData(
+//								this.qrDisplayContainer.width, this.qrDisplayContainer.height, true, 0);
+//						photoBitmapData.draw(this.qrDisplayContainer);
+//						pdf.addBitmapData(photoBitmapData, null, 0, 0);
+						
+
+//						if ((((((this.model.role == "FREE")) || ((this.model.role == "REG")))) || ((this.model.role == "GUEST")))){
+//							this.pdf.setFont(new CoreFont(FontFamily.HELVETICA_BOLD), 14);
+//							this.pdf.textStyle(new RGBColor(0));
+//							this.pdf.addText("Made with QRHacker.com", 380, 800);
+//						};
+						pdfbytes = this.pdf.save(Method.LOCAL);
+						file.save(pdfbytes, "QRHacker.pdf");
+					} else {
+						if (saveType == 'btnSaveHPNG'){
+							file.save(bigQRPNG, "QRHacker.com.png");
+						};
+					};
+				};
+			}
+			
+			protected function onFileSaved(e:Event):void{
+				trace("Main.onFileSaved(e)");
+			}
+			protected function onFileSaveCancel(e:Event):void{
+				trace("Main.onFileSaveCancel(e)");
+			}
+			
+			public function setPixelColor(str:String):void{
+				if (this.model.pixelType == -1){
+					this.model.pixelType = 0;
+					this.model.pixelColor = uint(this.fixColorCode(str));
+				} else {
+					this.model.pixelColor = uint(this.fixColorCode(str));
+					this.model.pixelType = this.model.pixelType;
+				};
+			}
+			
+			//qrcode容器的尺寸
+			public function getQrDisplayRegion():Rectangle {
+				return new Rectangle(qrDisplayContainer.x, qrDisplayContainer.y
+						, qrDisplayContainer.width, qrDisplayContainer.height);
+			}
+//			
+//			gdg//qrcode的长宽尺寸，以及该qrcode在容器内的起点坐标
+//			public function getQrGenerateRegion():Rectangle {
+//				return new Rectangle(0, 0, QR_SIZE, QR_SIZE);				
+//			}
+//			
+//			public function getQrSize():Number {
+//				return QR_SIZE;
+//			}
+			
+			private function onbtnGenerate$Click(event:MouseEvent):void {
+				var codeType:String = String(rbCodeType.selectedValue);
+				if (codeType == 'url') {
+					var regex:RegExp = new RegExp(URL_PATTERN);
+					if (!regex.test(content.text)) {
+						Alert.show("请输入正确的链接格式", "格式错误");
+						return;
+					}
+				}
+				this.generateQrCode(content.text, codeType);	
+			}
+			
+			private function onRadiusChanged(event:FlexEvent):void {
+				setRoundedCorner(HSlider(event.target).value);
+			}
+			
+			private function onBackgroundAlphaChanged(event:FlexEvent):void {
+				setBackgroundAlpha(HSlider(event.target).value);
+			}
+			
+			private function onFgColorPickerClose(event:DropdownEvent):void {
+				var color:* = ColorPicker(event.target).selectedColor;
+				if (color || color === 0) setForegroundColor(color.toString(16));
+			}
+			
+			private function onBgColorPickerClose(event:DropdownEvent):void {
+				var color:* = ColorPicker(event.target).selectedColor;
+				if (color || color === 0) setBackgroundColor(color.toString(16));
+			}
+			
+			private function onBtnClearPhoto$Click(event:MouseEvent):void {
+				this.photoView.dispose();			
+			}
+			
+			private function onBtnUploadPhoto$Click(event:MouseEvent):void {
+				if (!this.fileReference)
+				{
+					this.fileReference = new FileReference();
+				};
+				this.fileReference.addEventListener(Event.SELECT, this.onFileSelected, false, 0, true);
+				this.fileReference.browse([new FileFilter("Images", "*.jpg;*.gif;*.png")]);				
+			}
+			
+			protected function onFileSelected(_arg1:Event):void
+			{
+				this.fileReference.removeEventListener(Event.SELECT, this.onFileSelected);
+				this.fileReference.addEventListener(Event.COMPLETE, this.onFileLoaded, false, 0, true);
+				this.fileReference.load();
+			}
+			
+			protected function onFileLoaded(_arg1:Event):void
+			{
+				this.fileReference.removeEventListener(Event.COMPLETE, this.onFileLoaded);
+				
+				this.bitmapLoader = new Loader();
+				this.bitmapLoader.contentLoaderInfo.addEventListener(Event.COMPLETE, this.onBitmapLoaderComplete);
+				this.bitmapLoader.loadBytes(_arg1.target.data);
+				
+				//this.model.photo = _arg1.target.data;
+			}
+			protected function onBitmapLoaderComplete(event:Event):void{
+				this.bitmapLoader.contentLoaderInfo.removeEventListener(Event.COMPLETE, this.onBitmapLoaderComplete);
+				
+				var bitmapData:BitmapData = Bitmap(LoaderInfo(event.target).content).bitmapData;
+				this.model.photo = new Bitmap(bitmapData);
+				
+			}
+			
+		]]>
+	</fx:Script>
+	<fx:Declarations>
+		<!-- 将非可视元素（例如服务、值对象）放在此处 -->
+		<s:RadioButtonGroup id="rbCodeType"/>
+	</fx:Declarations>
+	<fx:Style source="defaults.css"/>
+	<s:layout>
+		<s:BasicLayout/>
+	</s:layout>
+
+	<s:SkinnableContainer
+		x="0" y="0" width="100%" height="80" backgroundColor="0x363435">
+		<s:layout>
+			<s:BasicLayout/>
+		</s:layout>
+		<s:SkinnableContainer
+			x="0" y="0" width="268" height="100%" backgroundColor="0x464646">
+		</s:SkinnableContainer>
+		
+		<s:SkinnableContainer
+		    x="1000" y="0" width="96" height="100%" backgroundColor="0x464646">
+		</s:SkinnableContainer>
+	</s:SkinnableContainer>
+	
+	<s:SkinnableContainer
+		x="0" y="104" width="268" height="150">
+		<s:layout>
+			<s:BasicLayout/>
+		</s:layout>
+		
+		<s:Label text="创建" styleName="title_2"
+				 x="36" y="0"/>
+
+		<s:Graphic x="37" y="51">
+			<s:Path data="M 0 0
+					21 0
+					21 21
+					0 21
+					0 0Z">
+				<s:fill>
+					<s:SolidColor color="0x666666" />
+				</s:fill>
+			</s:Path>
+			<s:Path data="M 0 10
+					21 10
+					M 10 0
+					10 21">
+				<s:stroke>
+					<s:SolidColorStroke color="0xFFFFFF" />
+				</s:stroke>
+			</s:Path>
+		</s:Graphic>		
+		<s:Label text="选择输入类型" styleName="title_2"
+				 x="66" y="51"/>
+		
+		<s:Rect x="0" y="86" width="100%" height="3">
+			<s:fill><s:SolidColor color="0x666666" /></s:fill>
+		</s:Rect>
+		
+		<s:RadioButton label="文本" groupName="rbCodeType"
+					   skinClass="skins.buttons.QRTextRadioButtonSkin" value="text"
+					   buttonMode="true"
+					   x="0" y="88" width="100%"/>
+		<s:RadioButton label="URL" groupName="rbCodeType"
+					   skinClass="skins.buttons.QRUrlRadioButtonSkin" value="url" selected="true"	
+					   buttonMode="true"
+					   x="0" y="134" width="100%"/>		
+		<s:RadioButton label="电话/手机号码" groupName="rbCodeType"
+					   skinClass="skins.buttons.QRPhoneRadioButtonSkin" value="phone"
+					   buttonMode="true"
+					   x="0" y="180" width="100%"/>	
+		
+		<s:Rect x="0" y="227" width="100%" height="3">
+			<s:fill><s:SolidColor color="0x666666" /></s:fill>
+		</s:Rect>		
+	</s:SkinnableContainer>
+	
+	<s:SkinnableContainer
+		x="0" y="330" width="268" height="400">
+		<s:layout>
+			<s:BasicLayout/>
+		</s:layout>
+		
+		<s:Label text="请输入二维码内容" styleName="title_2"
+				 x="36" y="13"/>
+
+		<s:TextArea id="content" x="10" y="60" width="248" height="200">
+			<s:text>http://www.baidu.com</s:text>
+		</s:TextArea>
+		
+		<s:Button label="创建二维码" 
+				  x="0" y="270" width="100%" height="48"
+				  skinClass="skins.buttons.DefaultButtonSkin"
+				  buttonMode="true"
+				  click="onbtnGenerate$Click(event)" />
+
+	</s:SkinnableContainer>		
+
+	
+
+	
+	<s:BorderContainer id="qrDisplayContainer" borderVisible="false"
+		x="272" y="100" width="{QR_SIZE}" height="{QR_SIZE}">
+		<s:layout>
+			<s:BasicLayout/>
+		</s:layout>
+	</s:BorderContainer>	
+	
+	
+	<s:SkinnableContainer
+		x="752" y="104" width="268" height="150">
+		<s:layout>
+			<s:BasicLayout/>
+		</s:layout>
+		
+		<s:Label text="自定义设置" styleName="title_2"
+				 x="36" y="0"/>
+		
+		<s:Graphic x="37" y="51">
+			<s:Path data="M 0 0
+					21 0
+					21 21
+					0 21
+					0 0Z">
+				<s:fill>
+					<s:SolidColor color="0x666666" />
+				</s:fill>
+			</s:Path>
+			<s:Path data="M 0 10
+					21 10
+					M 10 0
+					10 21">
+				<s:stroke>
+					<s:SolidColorStroke color="0xFFFFFF" />
+				</s:stroke>
+			</s:Path>
+		</s:Graphic>		
+		<s:Label text="QR风格" styleName="title_2"
+				 x="66" y="51"/>
+		
+		<s:Rect x="0" y="86" width="100%" height="3">
+			<s:fill><s:SolidColor color="0x666666" /></s:fill>
+		</s:Rect>
+
+		<s:Label text="圆角" x="36" y="88" height="48" verticalAlign="middle"/>
+		<s:HSlider id="hsRadius" stepSize="0.1"
+				   changeEnd="onRadiusChanged(event)" minimum="0" maximum="1"
+				   skinClass="skins.components.RadiusHSliderSkin"
+				   buttonMode="true"
+				   x="86" y="88" width="150" height="48"/>
+
+		<s:Rect x="0" y="136" width="100%" height="3">
+			<s:fill><s:SolidColor color="0x666666" /></s:fill>
+		</s:Rect>
+
+		<s:Label text="背景" x="36" y="149" 
+				 styleName="title_2"
+				 height="48" verticalAlign="middle"/>
+		
+		<mx:ColorPicker id="bgColorPicker" close="onBgColorPickerClose(event)"
+						x="106" y="163" />
+		<!--
+		<s:Button label="背景色" 
+				  skinClass="skins.buttons.QRBackgroundColorButtonSkin"
+				  buttonMode="true"
+				  x="0" y="200" 
+				  width="100%" height="48"/>	
+		-->
+		<s:Button label="图片" 
+				  skinClass="skins.buttons.QRBackgroundImageButtonSkin"
+				  buttonMode="true"
+				  x="0" y="200" 
+				  width="100%" height="48"/>		
+		
+		<s:Rect x="0" y="246" width="100%" height="3">
+			<s:fill><s:SolidColor color="0x666666" /></s:fill>
+		</s:Rect>
+		
+		<s:Label text="前景" x="36" y="259" 
+				 styleName="title_2"
+				 height="48" verticalAlign="middle"/>
+		
+		<mx:ColorPicker id="fgColorPicker" close="onFgColorPickerClose(event)"
+						x="106" y="275" />
+		<!--
+		<s:Button label="前景色" 
+				  skinClass="skins.buttons.QRBackgroundColorButtonSkin"
+				  buttonMode="true"
+				  x="0" y="356" 
+				  width="100%" height="48"/>		
+		-->
+		<s:Button label="图片" 
+				  skinClass="skins.buttons.QRBackgroundImageButtonSkin"
+				  buttonMode="true"
+				  x="0" y="321" 
+				  width="100%" height="48"/>	
+		<!--
+		<s:Button label="添加logo" 
+				  skinClass="skins.buttons.QRForegroundLogoButtonSkin"
+				  buttonMode="true"
+				  x="0" y="402" 
+				  width="100%" height="48"/>	
+		-->
+	</s:SkinnableContainer>
+		
+	<s:SkinnableContainer
+		x="752" y="330" width="268" height="400">
+		<s:layout>
+			<s:BasicLayout/>
+		</s:layout>
+		
+		<s:Button id="btnSavePNG" label="保存二维码" 
+				  x="0" y="270" width="100%" height="48"
+				  skinClass="skins.buttons.DefaultButtonSkin"
+				  buttonMode="true"
+				  click="onBtnSave$Click(event)" />
+		
+	</s:SkinnableContainer>		
+	
+	<s:Panel
+		title="各种操作大全"
+		x="750" y="0" width="150" visible="true">
+		<s:layout>
+			<s:VerticalLayout gap="1" paddingLeft="5" paddingTop="3"/>
+		</s:layout>
+		
+		<s:Button id="btnSavePNG1" label="标准PNG" 
+				  click="onBtnSave$Click(event)" 
+				  width="100" height="25"/>
+		<s:Button id="btnSavePDF" label="保存PDF" 
+				  click="onBtnSave$Click(event)" 
+				  width="100" height="25"/>
+		<s:Button id="btnSaveHPNG" label="高清PNG" 
+				  click="onBtnSave$Click(event)" 
+				  width="100" height="25"/>	
+	
+		<s:Button id="btnUploadPhoto" label="上传照片" 
+				  click="onBtnUploadPhoto$Click(event)" 
+				  width="100" height="25"/>
+		<s:Button id="btnClearPhoto" label="清除照片" 
+				  click="onBtnClearPhoto$Click(event)" 
+				  width="100" height="25"/>			
+	</s:Panel>	
+	
+	<debugger:MonsterDebuggerFlex id="monsterDebugger"/>
+</s:WindowedApplication>
